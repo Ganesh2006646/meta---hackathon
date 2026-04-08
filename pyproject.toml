@@ -16,6 +16,9 @@ dependencies = [
     "uvicorn[standard]>=0.30",
 ]
 
+[project.scripts]
+server = "server.app:main"
+
 [tool.setuptools]
 packages = ["execucode", "execucode.server"]
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 try:
     from ..models import ExecuCodeAction, ExecuCodeObservation
     from .environment import ExecuCodeEnvironment
@@ -24,3 +26,18 @@ app = create_app(
     ExecuCodeObservation,
     env_name="execucode",
 )
+
+
+def main() -> None:
+    """CLI entry point for running the FastAPI server."""
+    import uvicorn
+
+    uvicorn.run(
+        "server.app:app",
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", "8000")),
+    )
+
+
+if __name__ == "__main__":
+    main()
