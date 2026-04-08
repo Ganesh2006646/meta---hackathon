@@ -1,3 +1,12 @@
+---
+title: ExecuCode Env
+emoji: "🧠"
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 8000
+---
+
 # ExecuCode
 
 ExecuCode is an OpenEnv-compatible environment for conversational,
@@ -74,11 +83,11 @@ solutions so the environment loop can still be validated.
 
 ## Deployment
 
-The included `openenv.yaml` points at `execucode.server.app:app`, and
-`server/Dockerfile` uses the OpenEnv base image:
+The included `openenv.yaml` points at `server.app:app`, and the root
+`Dockerfile` uses the OpenEnv base image:
 
 ```powershell
-docker build -f .\execucode\server\Dockerfile .\execucode
+docker build -f .\execucode\Dockerfile .\execucode
 ```
 
 The container exposes port `8000` and starts Uvicorn with the ExecuCode FastAPI
