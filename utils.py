@@ -149,12 +149,17 @@ def generate_feedback(
     lines = [
         f"Step {step_count}/{max_attempts} evaluation",
         f"Total reward: {total_reward:.3f} / 1.000",
+        (
+            f"Score breakdown: correctness={correctness_score:.3f}, "
+            f"performance={performance_score:.3f}, quality={quality_score:.3f}"
+        ),
         f"Correctness: {correctness_score:.3f} ({passed}/{total} tests passed)",
     ]
 
-    for detail in test_details:
-        if detail["passed"]:
-            continue
+    failed_tests = [detail for detail in test_details if not detail["passed"]]
+    shown_failures = failed_tests[:5]
+
+    for detail in shown_failures:
         lines.append(
             "Failed test "
             f"{detail['index']}: input={detail['input']!r}, "
@@ -162,12 +167,31 @@ def generate_feedback(
         )
         if detail.get("error"):
             lines.append(f"Error: {detail['error']}")
+    if len(failed_tests) > len(shown_failures):
+        lines.append(
+            f"... {len(failed_tests) - len(shown_failures)} more failing tests omitted."
+        )
 
     lines.append(f"Performance: {performance_score:.3f}")
     lines.extend(f"- {note}" for note in performance_notes)
 
     lines.append(f"Code quality: {quality_score:.3f}")
     lines.extend(f"- {note}" for note in quality_notes)
+
+    next_actions: list[str] = []
+    if correctness_score < 1.0:
+        next_actions.append("Fix failing correctness cases first.")
+    if performance_score < 0.85:
+        next_actions.append(
+            "Reduce algorithmic complexity (avoid nested loops and linear membership checks)."
+        )
+    if quality_score < 0.85:
+        next_actions.append("Improve readability (docstring, naming, and concise logic).")
+    if not next_actions:
+        next_actions.append("Keep this structure; only make minimal safe refinements.")
+
+    lines.append("Suggested next actions:")
+    lines.extend(f"- {action}" for action in next_actions)
 
     if is_done and total_reward >= 0.95:
         lines.append("Status: solved.")
