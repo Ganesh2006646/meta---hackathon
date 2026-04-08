@@ -1,12 +1,3 @@
----
-title: ExecuCode Env
-emoji: "🧠"
-colorFrom: blue
-colorTo: green
-sdk: docker
-app_port: 8000
----
-
 # ExecuCode
 
 ExecuCode is an OpenEnv-compatible environment for conversational,
