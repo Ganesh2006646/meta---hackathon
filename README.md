@@ -78,6 +78,19 @@ To run the baseline inference loop:
 python .\execucode\inference.py
 ```
 
+To run a clean validator output view from PowerShell:
+
+```powershell
+cd "D:\meta hackathon\execucode"
+.\run_validator.ps1 -TaskId 0 -CodePath .\submission.py
+```
+
+You can also pass inline code and/or a hosted Space URL:
+
+```powershell
+.\run_validator.ps1 -TaskId 1 -Code "def find_duplicates(numbers): return []" -BaseUrl "https://ganeshkankatala4-execucode-env.hf.space"
+```
+
 If `API_BASE_URL`, `MODEL_NAME`, and `HF_TOKEN` are set, the script uses an
 OpenAI-compatible model endpoint. Otherwise it falls back to built-in reference
 solutions so the environment loop can still be validated.

@@ -222,10 +222,12 @@ def _run_episode(client: OpenAI, task_id: int) -> None:
                 pass
 
         rewards_payload = ",".join(f"{score:.2f}" for score in rewards)
+        final_score = _score_for_log(rewards[-1] if rewards else 0.0)
         print(
             "[END] "
             f"success={_to_bool_token(solved)} "
             f"steps={steps} "
+            f"score={final_score:.2f} "
             f"rewards={rewards_payload}"
         )
 
