@@ -129,6 +129,20 @@ def _extract_submission(payload: GraderRequest) -> str:
     )
 
 
+@app.get("/")
+def root() -> dict[str, Any]:
+    """Simple landing payload for HF Space root path."""
+
+    return {
+        "name": "ExecuCode Env",
+        "status": "ok",
+        "docs": "/docs",
+        "tasks_endpoint": "/tasks",
+        "grader_endpoint": "POST /grader",
+        "baseline_endpoint": "POST /baseline",
+    }
+
+
 @app.get("/tasks")
 def list_tasks() -> list[dict[str, Any]]:
     """Expose all tasks with explicit grader wiring for hackathon validators."""
