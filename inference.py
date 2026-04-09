@@ -1,4 +1,4 @@
-"""Smarter baseline inference loop for ExecuCode."""
+"""Hackathon-compliant inference loop for ExecuCode."""
 
 from __future__ import annotations
 
@@ -26,6 +26,13 @@ API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
+if HF_TOKEN is None:
+    raise ValueError("HF_TOKEN environment variable is required")
+
+ENV_NAME = "execucode"
+TASK_IDS = (0, 1, 2)
+EPISODE_TIMEOUT_SECONDS = int(os.getenv("EPISODE_TIMEOUT_SECONDS", "120"))
+
 
 SYSTEM_PROMPT = """You are an expert Python code optimization agent.
 You will iteratively improve a single function based on evaluator feedback.
@@ -35,6 +42,25 @@ Rules:
 - Prioritize correctness first, then performance, then readability.
 - Do not include explanations outside the code block.
 """
+
+
+def _to_bool_token(value: bool) -> str:
+    return "true" if value else "false"
+
+
+def _escape_log_field(value: str) -> str:
+    return (
+        value.replace("\\", "\\\\")
+        .replace("\r", "\\r")
+        .replace("\n", "\\n")
+        .strip()
+    )
+
+
+def _score_for_log(score: float) -> float:
+    """Keep printed scores inside (0, 1) even after 2-decimal formatting."""
+
+    return max(0.01, min(0.99, float(score)))
 
 
 def _fallback_solution(task_id: int) -> str:
@@ -85,7 +111,7 @@ def _build_user_prompt(
 
 
 def _call_model(
-    client: OpenAI | None,
+    client: OpenAI,
     *,
     task_prompt: str,
     function_name: str,
@@ -94,9 +120,6 @@ def _call_model(
     previous_feedback: str | None,
     previous_submission: str | None,
 ) -> str | None:
-    if client is None:
-        return None
-
     prompt = _build_user_prompt(
         task_prompt=task_prompt,
         function_name=function_name,
@@ -132,90 +155,85 @@ def _extract_valid_submission(
     return code
 
 
-def main() -> None:
-    start_time = time.monotonic()
-    deadline_seconds = 20 * 60
+def _run_episode(client: OpenAI, task_id: int) -> None:
+    task = get_task(task_id)
     env = ExecuCodeEnvironment()
-    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN) if HF_TOKEN else None
+    rewards: list[float] = []
+    steps = 0
+    solved = False
+    previous_feedback: str | None = None
+    previous_submission: str | None = None
 
-    print(
-        "[START] "
-        f"api_base_url={API_BASE_URL} "
-        f"model_name={MODEL_NAME} "
-        f"hf_token_set={bool(HF_TOKEN)}"
-    )
+    print(f"[START] task={task.function_name} env={ENV_NAME} model={MODEL_NAME}")
+
     try:
-        status = "success"
-        for task_id in range(3):
-            task = get_task(task_id)
-            observation = env.reset(task_id=task_id)
-            task_prompt = observation.echoed_message
-            previous_feedback: str | None = None
-            best_submission = _fallback_solution(task_id)
-            best_reward = -1.0
+        observation = env.reset(task_id=task_id)
+        task_prompt = observation.echoed_message
+        deadline = time.monotonic() + EPISODE_TIMEOUT_SECONDS
+
+        while not observation.done and time.monotonic() < deadline:
+            attempt = steps + 1
+            max_attempts = env.state.max_attempts
+            raw_message = _call_model(
+                client,
+                task_prompt=task_prompt,
+                function_name=task.function_name,
+                attempt=attempt,
+                max_attempts=max_attempts,
+                previous_feedback=previous_feedback,
+                previous_submission=previous_submission,
+            )
+            model_submission = _extract_valid_submission(
+                raw_message,
+                function_name=task.function_name,
+            )
+            submission = model_submission if model_submission is not None else _fallback_solution(task_id)
+
+            observation = env.step(ExecuCodeAction(message=submission))
+            steps += 1
+
+            reward = _score_for_log(float(observation.reward or 0.0))
+            rewards.append(reward)
+            done = bool(observation.done)
+            if done and reward >= 0.95:
+                solved = True
+
+            metadata = observation.metadata if isinstance(observation.metadata, dict) else {}
+            error_raw = metadata.get("last_action_error")
+            error = "null" if not error_raw else _escape_log_field(str(error_raw))
 
             print(
                 "[STEP] "
-                "phase=reset "
-                f"task_id={task_id} "
-                "attempt=0 "
-                "reward=0.000 "
-                "done=False"
+                f"step={steps} "
+                f"action=submit_attempt_{attempt} "
+                f"reward={reward:.2f} "
+                f"done={_to_bool_token(done)} "
+                f"error={error}"
             )
 
-            while not observation.done and time.monotonic() - start_time < deadline_seconds:
-                attempt = env.state.attempts + 1
-                max_attempts = env.state.max_attempts
-                raw_message = _call_model(
-                    client,
-                    task_prompt=task_prompt,
-                    function_name=task.function_name,
-                    attempt=attempt,
-                    max_attempts=max_attempts,
-                    previous_feedback=previous_feedback,
-                    previous_submission=best_submission if env.state.attempts > 0 else None,
-                )
-                model_submission = _extract_valid_submission(
-                    raw_message,
-                    function_name=task.function_name,
-                )
+            previous_feedback = observation.echoed_message
+            previous_submission = submission
+    finally:
+        close_fn = getattr(env, "close", None)
+        if callable(close_fn):
+            try:
+                close_fn()
+            except Exception:
+                pass
 
-                if model_submission is None:
-                    submission = best_submission
-                else:
-                    submission = model_submission
-
-                observation = env.step(ExecuCodeAction(message=submission))
-                reward = float(observation.reward or 0.0)
-                if reward >= best_reward:
-                    best_reward = reward
-                    best_submission = submission
-
-                print(
-                    "[STEP] "
-                    "phase=step "
-                    f"task_id={task_id} "
-                    f"attempt={observation.metadata['attempts']} "
-                    f"reward={reward:.3f} "
-                    f"done={observation.done}"
-                )
-                previous_feedback = observation.echoed_message
-
-            if not observation.done and time.monotonic() - start_time >= deadline_seconds:
-                status = "timeout"
-                break
-
-        duration = time.monotonic() - start_time
-        print("[END] " f"status={status} " f"duration_s={duration:.2f}")
-    except Exception as exc:  # noqa: BLE001 - maintain strict log-only output
-        duration = time.monotonic() - start_time
+        rewards_payload = ",".join(f"{score:.2f}" for score in rewards)
         print(
             "[END] "
-            "status=error "
-            f"duration_s={duration:.2f} "
-            f"error={type(exc).__name__}:{exc}"
+            f"success={_to_bool_token(solved)} "
+            f"steps={steps} "
+            f"rewards={rewards_payload}"
         )
-        raise SystemExit(1)
+
+
+def main() -> None:
+    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+    for task_id in TASK_IDS:
+        _run_episode(client, task_id)
 
 
 if __name__ == "__main__":

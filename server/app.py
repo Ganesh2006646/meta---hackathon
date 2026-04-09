@@ -144,8 +144,12 @@ def list_tasks() -> list[dict[str, Any]]:
             "max_steps": 10,
             "function_name": task.function_name,
             "has_grader": True,
-            "grader": "/grader",
+            "grader": "POST /grader",
+            "grader_method": "POST",
+            "grader_endpoint": "/grader",
             "score_range": {"exclusive_min": 0.0, "exclusive_max": 1.0},
+            "score_min_exclusive": 0.0,
+            "score_max_exclusive": 1.0,
         }
         for task in ALL_TASKS
     ]
