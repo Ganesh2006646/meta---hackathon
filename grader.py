@@ -41,7 +41,7 @@ class _PerformanceSignals:
 
 
 def _clamp(value: float) -> float:
-    return max(0.0, min(1.0, value))
+    return max(0.001, min(0.999, value))
 
 
 def _find_target_function(tree: ast.AST, function_name: str) -> ast.FunctionDef | None:
@@ -55,7 +55,7 @@ class _PerformanceVisitor(ast.NodeVisitor):
     """Collect complexity-related AST signals from a function body."""
 
     def __init__(self) -> None:
-        self.loop_count = 0
+        self.loop_count = 0   
         self.current_loop_depth = 0
         self.max_loop_depth = 0
         self.comprehension_count = 0
@@ -407,12 +407,15 @@ def _score_quality(code: str, task: Task) -> tuple[float, list[str]]:
 def grade_submission(code: str, task: Task) -> GradeResult:
     """Grade a submission against a task and return all scoring dimensions."""
 
-    correctness, test_details = _score_correctness(code, task)
+    correctness_raw, test_details = _score_correctness(code, task)
+    correctness = _clamp(correctness_raw)
+    
     performance, performance_notes = _score_performance(code, task)
     quality, quality_notes = _score_quality(code, task)
+    
     c_weight, p_weight, q_weight = task.scoring_weights
     reward = _clamp(
-        correctness * c_weight + performance * p_weight + quality * q_weight
+        correctness_raw * c_weight + performance * p_weight + quality * q_weight
     )
 
     return GradeResult(

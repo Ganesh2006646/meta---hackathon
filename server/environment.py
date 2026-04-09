@@ -96,7 +96,7 @@ class ExecuCodeEnvironment(Environment):
         observation = ExecuCodeObservation(
             echoed_message=prompt,
             done=False,
-            reward=0.0,
+            reward=_clamp_open_interval(0.0),
             metadata={
                 "task_id": self._task.task_id,
                 "difficulty": self._task.difficulty,
