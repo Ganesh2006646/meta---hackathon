@@ -20,7 +20,8 @@ The environment uses standard OpenEnv action, observation, and state models:
 
 - `ExecuCodeAction.message`: the agent's analysis and proposed Python function.
 - `ExecuCodeObservation.echoed_message`: task prompt or grading feedback.
-- `ExecuCodeObservation.reward`: final weighted score in `[0.0, 1.0]`.
+- `ExecuCodeObservation.reward`: final weighted score clamped to `(0.0, 1.0)`
+  for validator compatibility.
 - `ExecuCodeState`: task id, latest code, best reward, attempts, and step count.
 
 On each step, ExecuCode extracts the final Python code block or raw function
@@ -92,6 +93,12 @@ docker build -f .\execucode\Dockerfile .\execucode
 
 The container exposes port `8000` and starts Uvicorn with the ExecuCode FastAPI
 app.
+
+Compatibility endpoints used by task validators:
+
+- `GET /tasks`: returns all registered tasks and grader wiring.
+- `POST /grader`: grades a task answer with score/breakdown in `(0, 1)`.
+- `POST /baseline`: deterministic reference baseline scores in `(0, 1)`.
 
 ## Notes
 

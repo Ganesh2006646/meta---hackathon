@@ -35,6 +35,15 @@ except ImportError:
     from utils import extract_code, generate_feedback
 
 
+_SCORE_EPSILON = 1e-3
+
+
+def _clamp_open_interval(score: float) -> float:
+    """Clamp scores into the strict open interval (0, 1)."""
+
+    return max(_SCORE_EPSILON, min(1.0 - _SCORE_EPSILON, float(score)))
+
+
 class ExecuCodeEnvironment(Environment):
     """Conversational code optimization environment."""
 
@@ -107,11 +116,15 @@ class ExecuCodeEnvironment(Environment):
 
         code = extract_code(action.message)
         result = grade_submission(code, self._task)
+        reward = _clamp_open_interval(result.reward)
+        correctness = _clamp_open_interval(result.correctness)
+        performance = _clamp_open_interval(result.performance)
+        quality = _clamp_open_interval(result.quality)
 
         next_attempt = self._state.attempts + 1
         next_step = self._state.step_count + 1
-        done = result.reward >= 0.95 or next_attempt >= self._state.max_attempts
-        best_reward = max(self._state.best_reward, result.reward)
+        done = reward >= 0.95 or next_attempt >= self._state.max_attempts
+        best_reward = max(self._state.best_reward, reward)
 
         self._state = self._state.model_copy(
             update={
@@ -123,10 +136,10 @@ class ExecuCodeEnvironment(Environment):
         )
 
         feedback = generate_feedback(
-            correctness_score=result.correctness,
-            performance_score=result.performance,
-            quality_score=result.quality,
-            total_reward=result.reward,
+            correctness_score=correctness,
+            performance_score=performance,
+            quality_score=quality,
+            total_reward=reward,
             test_details=result.test_details,
             performance_notes=result.performance_notes,
             quality_notes=result.quality_notes,
@@ -138,16 +151,16 @@ class ExecuCodeEnvironment(Environment):
         observation = ExecuCodeObservation(
             echoed_message=feedback,
             done=done,
-            reward=result.reward,
+            reward=reward,
             metadata={
                 "task_id": self._task.task_id,
                 "difficulty": self._task.difficulty,
                 "function_name": self._task.function_name,
                 "attempts": next_attempt,
                 "best_reward": best_reward,
-                "correctness": result.correctness,
-                "performance": result.performance,
-                "quality": result.quality,
+                "correctness": correctness,
+                "performance": performance,
+                "quality": quality,
             },
         )
         return self._apply_transform(observation)

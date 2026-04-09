@@ -1,6 +1,39 @@
 spec_version: 1
 name: execucode
+version: "1.0.0"
+description: Deterministic coding-task environment for iterative code improvement.
+domain: software_engineering
+real_world_task: true
 type: space
 runtime: fastapi
 app: server.app:app
 port: 8000
+tasks:
+  - id: 0
+    name: Bug Fix: sum_positive
+    difficulty: easy
+    max_steps: 10
+    grader: POST /grader
+  - id: 1
+    name: Optimization: find_duplicates
+    difficulty: medium
+    max_steps: 10
+    grader: POST /grader
+  - id: 2
+    name: Multi-Objective: word_frequency
+    difficulty: hard
+    max_steps: 10
+    grader: POST /grader
+reward:
+  type: continuous
+  range: [0.001, 0.999]
+  shaped: true
+endpoints:
+  base_url: http://localhost:8000
+  reset: POST /reset
+  step: POST /step
+  state: GET /state
+  tasks: GET /tasks
+  grader: POST /grader
+  baseline: POST /baseline
+  health: GET /health
