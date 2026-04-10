@@ -126,6 +126,25 @@ class ExecuCodeEnvironment(Environment):
         done = reward >= 0.95 or next_attempt >= self._state.max_attempts
         best_reward = max(self._state.best_reward, reward)
 
+        elapsed_values = [
+            float(detail["elapsed_ms"])
+            for detail in result.test_details
+            if isinstance(detail.get("elapsed_ms"), (int, float))
+        ]
+        memory_values = [
+            int(detail["memory_kb"])
+            for detail in result.test_details
+            if isinstance(detail.get("memory_kb"), (int, float))
+        ]
+        first_error = next(
+            (
+                detail.get("error")
+                for detail in result.test_details
+                if not detail.get("passed") and detail.get("error")
+            ),
+            None,
+        )
+
         self._state = self._state.model_copy(
             update={
                 "current_code": code,
@@ -161,6 +180,12 @@ class ExecuCodeEnvironment(Environment):
                 "correctness": correctness,
                 "performance": performance,
                 "quality": quality,
+                "avg_elapsed_ms": round(sum(elapsed_values) / len(elapsed_values), 3)
+                if elapsed_values
+                else None,
+                "max_elapsed_ms": round(max(elapsed_values), 3) if elapsed_values else None,
+                "max_memory_kb": max(memory_values) if memory_values else None,
+                "last_action_error": first_error,
             },
         )
         return self._apply_transform(observation)

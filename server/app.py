@@ -95,6 +95,7 @@ class GraderResponse(BaseModel):
     score: float
     breakdown: dict[str, float]
     feedback: str
+    test_details: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class BaselineRequest(BaseModel):
@@ -421,6 +422,7 @@ def grade_task_submission(request: GraderRequest) -> GraderResponse:
             "quality": _clamp_open_interval(result.quality),
         },
         feedback=feedback,
+        test_details=result.test_details,
     )
 
 

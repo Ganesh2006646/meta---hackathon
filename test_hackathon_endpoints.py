@@ -48,6 +48,7 @@ def test_grader_scores_are_strictly_between_zero_and_one() -> None:
         assert response.status_code == 200
         payload = response.json()
         assert 0.0 < payload["score"] < 1.0
+        assert isinstance(payload.get("test_details"), list)
 
         for component_score in payload["breakdown"].values():
             assert 0.0 < component_score < 1.0
@@ -63,6 +64,44 @@ def test_grader_accepts_markdown_fenced_submission() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["score"] >= 0.95
+
+
+def test_grader_returns_structured_runtime_errors() -> None:
+    broken_code = """
+def append_to_history(item, history=None):
+    return 1 / 0
+""".strip()
+    response = client.post(
+        "/grader",
+        json={"task_id": 0, "code": broken_code},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    first_detail = payload["test_details"][0]
+    error = first_detail["error"]
+    assert isinstance(error, dict)
+    assert error["status"] == "runtime_error"
+    assert error["error_type"] == "ZeroDivisionError"
+    assert isinstance(first_detail.get("elapsed_ms"), (int, float))
+
+
+def test_grader_rejects_blocked_functions_with_policy_error() -> None:
+    blocked_code = """
+def append_to_history(item, history=None):
+    open('x.txt', 'w')
+    return []
+""".strip()
+    response = client.post(
+        "/grader",
+        json={"task_id": 0, "code": blocked_code},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    first_detail = payload["test_details"][0]
+    error = first_detail["error"]
+    assert isinstance(error, dict)
+    assert error["status"] == "policy_error"
+    assert error["error_type"] == "SecurityPolicyError"
 
 
 def test_pattern_fields_are_tuples() -> None:

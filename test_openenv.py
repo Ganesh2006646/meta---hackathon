@@ -81,6 +81,16 @@ def test_state_updates() -> None:
     assert env.state.step_count == 1
     assert env.state.attempts == 1
     assert env.state.best_reward == observation.reward
+    assert "last_action_error" in observation.metadata
+
+
+def test_step_metadata_includes_execution_profile() -> None:
+    env = ExecuCodeEnvironment()
+    task = ALL_TASKS[0]
+    env.reset(task_id=task.task_id)
+    observation = env.step(ExecuCodeAction(message=task.reference_solution))
+    assert observation.metadata.get("avg_elapsed_ms") is not None
+    assert observation.metadata.get("max_elapsed_ms") is not None
 
 
 def test_extract_code_handles_common_markdown_variants() -> None:
@@ -99,6 +109,7 @@ def main() -> None:
     test_grading_does_not_mutate_task_test_inputs()
     test_reset_cycles_tasks()
     test_state_updates()
+    test_step_metadata_includes_execution_profile()
     test_extract_code_handles_common_markdown_variants()
     print("All ExecuCode validation checks passed.")
 

@@ -193,6 +193,24 @@ def _snapshot(value: Any) -> Any:
         return value
 
 
+def _normalize_error(error: Any) -> dict[str, Any] | None:
+    if error is None:
+        return None
+    if isinstance(error, dict):
+        return {
+            "status": str(error.get("status", "runtime_error")),
+            "error_type": str(error.get("error_type", "Error")),
+            "message": str(error.get("message", "")),
+            "line": error.get("line"),
+        }
+    return {
+        "status": "runtime_error",
+        "error_type": "Error",
+        "message": str(error),
+        "line": None,
+    }
+
+
 def _score_correctness(code: str, task: Task) -> tuple[float, list[dict[str, Any]]]:
     details: list[dict[str, Any]] = []
     correct = 0
@@ -206,6 +224,7 @@ def _score_correctness(code: str, task: Task) -> tuple[float, list[dict[str, Any
     )
 
     if not ran:
+        normalized_error = _normalize_error(run_error)
         for index, test_case in enumerate(task.test_cases, start=1):
             details.append(
                 {
@@ -213,8 +232,10 @@ def _score_correctness(code: str, task: Task) -> tuple[float, list[dict[str, Any
                     "input": _snapshot(test_case.input_args),
                     "expected": _snapshot(test_case.expected_output),
                     "actual": None,
-                    "error": run_error,
+                    "error": normalized_error,
                     "passed": False,
+                    "elapsed_ms": None,
+                    "memory_kb": None,
                 }
             )
         return 0.0, details
@@ -223,7 +244,11 @@ def _score_correctness(code: str, task: Task) -> tuple[float, list[dict[str, Any
         zip(task.test_cases, run_results),
         start=1,
     ):
-        ok, actual, error = result
+        ok = bool(result.get("ok"))
+        actual = result.get("output")
+        error = _normalize_error(result.get("error"))
+        elapsed_ms = result.get("elapsed_ms")
+        memory_kb = result.get("memory_kb")
         passed = ok and actual == test_case.expected_output
         if passed:
             correct += 1
@@ -235,6 +260,8 @@ def _score_correctness(code: str, task: Task) -> tuple[float, list[dict[str, Any
                 "actual": _snapshot(actual),
                 "error": error,
                 "passed": passed,
+                "elapsed_ms": elapsed_ms,
+                "memory_kb": memory_kb,
             }
         )
 
@@ -433,6 +460,32 @@ def _score_quality(code: str, task: Task) -> tuple[float, list[str]]:
     return _clamp(score), notes
 
 
+def _runtime_summary_from_details(test_details: list[dict[str, Any]]) -> str | None:
+    elapsed_values = [
+        float(detail["elapsed_ms"])
+        for detail in test_details
+        if isinstance(detail.get("elapsed_ms"), (int, float))
+    ]
+    memory_values = [
+        int(detail["memory_kb"])
+        for detail in test_details
+        if isinstance(detail.get("memory_kb"), (int, float))
+    ]
+
+    if not elapsed_values and not memory_values:
+        return None
+
+    parts: list[str] = []
+    if elapsed_values:
+        avg_elapsed = sum(elapsed_values) / len(elapsed_values)
+        max_elapsed = max(elapsed_values)
+        parts.append(f"runtime(avg={avg_elapsed:.2f}ms, max={max_elapsed:.2f}ms)")
+    if memory_values:
+        max_memory = max(memory_values)
+        parts.append(f"python_peak_memory(max={max_memory}KB)")
+    return "Execution metrics: " + ", ".join(parts) + "."
+
+
 def grade_submission(code: str, task: Task) -> GradeResult:
     """Grade a submission against a task and return all scoring dimensions."""
 
@@ -440,6 +493,9 @@ def grade_submission(code: str, task: Task) -> GradeResult:
     correctness = _clamp(correctness_raw)
     
     performance, performance_notes = _score_performance(code, task)
+    runtime_summary = _runtime_summary_from_details(test_details)
+    if runtime_summary is not None:
+        performance_notes = [runtime_summary, *performance_notes]
     quality, quality_notes = _score_quality(code, task)
     
     c_weight, p_weight, q_weight = task.scoring_weights
