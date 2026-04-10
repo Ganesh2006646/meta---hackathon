@@ -39,6 +39,13 @@ def test_all_tasks_with_reference_solutions() -> None:
         assert result.done is True
 
 
+def test_package_import_smoke() -> None:
+    import execucode
+
+    assert hasattr(execucode, "ExecuCodeEnv")
+    assert hasattr(execucode, "ExecuCodeAction")
+
+
 def test_deterministic_grading() -> None:
     for task in ALL_TASKS:
         first = grade_submission(task.reference_solution, task)
@@ -86,6 +93,7 @@ def test_extract_code_handles_common_markdown_variants() -> None:
 
 
 def main() -> None:
+    test_package_import_smoke()
     test_all_tasks_with_reference_solutions()
     test_deterministic_grading()
     test_grading_does_not_mutate_task_test_inputs()

@@ -14,6 +14,10 @@ except ModuleNotFoundError:
         def __init__(self, *args: object, **kwargs: object) -> None:
             raise RuntimeError("openenv-core is required to use ExecuCodeEnv.")
 
+        @classmethod
+        def __class_getitem__(cls, _item: object) -> type["EnvClient"]:
+            return cls
+
     class StepResult:
         """Fallback type used only for type checking in no-openenv mode."""
 
@@ -23,7 +27,14 @@ except ModuleNotFoundError:
 from .models import ExecuCodeAction, ExecuCodeObservation, ExecuCodeState
 
 
-class ExecuCodeEnv(EnvClient[ExecuCodeAction, ExecuCodeObservation, ExecuCodeState]):
+try:
+    _EnvClientBase = EnvClient[ExecuCodeAction, ExecuCodeObservation, ExecuCodeState]
+except TypeError:
+    # Some openenv-core versions expose a non-parameterized runtime EnvClient.
+    _EnvClientBase = EnvClient
+
+
+class ExecuCodeEnv(_EnvClientBase):
     """Client wrapper with typed action, observation, and state models."""
 
     def _step_payload(self, action: ExecuCodeAction) -> dict[str, Any]:

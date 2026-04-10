@@ -91,7 +91,7 @@ catch {
     Write-Host $_.Exception.Message -ForegroundColor Red
     Write-Host ""
     Write-Host "Tips:"
-    Write-Host "- Make sure the API is running (`uvicorn server.app:app --host 127.0.0.1 --port 8000`)."
+    Write-Host "- Make sure the API is running (`uvicorn execucode.server.app:app --host 127.0.0.1 --port 8000`)."
     Write-Host "- Or pass your HF Space URL with -BaseUrl."
     exit 1
 }

@@ -6,7 +6,7 @@ domain: software_engineering
 real_world_task: true
 type: space
 runtime: fastapi
-app: server.app:app
+app: execucode.server.app:app
 port: 8000
 tasks:
   - id: 0

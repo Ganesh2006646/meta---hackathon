@@ -382,6 +382,13 @@ def list_tasks() -> list[dict[str, Any]]:
     ]
 
 
+@app.get("/health")
+def health_check() -> dict[str, str]:
+    """Simple liveness endpoint for validators and deployments."""
+
+    return {"status": "ok", "env": "execucode"}
+
+
 @app.post("/grader", response_model=GraderResponse)
 def grade_task_submission(request: GraderRequest) -> GraderResponse:
     """Grade a task submission and return strict-open-interval scores."""
@@ -443,7 +450,7 @@ def main() -> None:
     import uvicorn
 
     uvicorn.run(
-        "server.app:app",
+        "execucode.server.app:app",
         host="0.0.0.0",
         port=int(os.getenv("PORT", "8000")),
     )

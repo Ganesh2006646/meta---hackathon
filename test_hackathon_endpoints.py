@@ -32,6 +32,13 @@ def test_tasks_endpoint_exposes_three_or_more_graded_tasks() -> None:
     assert len(tasks_with_graders) >= 3
 
 
+def test_health_endpoint_is_available() -> None:
+    response = client.get("/health")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload.get("status") == "ok"
+
+
 def test_grader_scores_are_strictly_between_zero_and_one() -> None:
     for task in ALL_TASKS:
         response = client.post(
