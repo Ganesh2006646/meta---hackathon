@@ -10,17 +10,17 @@ app: server.app:app
 port: 8000
 tasks:
   - id: 0
-    name: Bug Fix: sum_positive
+    name: Python Gotcha: Mutable Default Argument
     difficulty: easy
     max_steps: 10
     grader: POST /grader
   - id: 1
-    name: Optimization: find_duplicates
+    name: Dynamic Programming: Grid Path Counting
     difficulty: medium
     max_steps: 10
     grader: POST /grader
   - id: 2
-    name: Multi-Objective: word_frequency
+    name: AI Infra: RAG Document Chunker
     difficulty: hard
     max_steps: 10
     grader: POST /grader

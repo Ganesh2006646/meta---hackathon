@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 if __package__ in {None, ""}:
     # Allow: `python execucode/test_openenv.py`
     import pathlib
@@ -15,6 +17,7 @@ from execucode.grader import grade_submission
 from execucode.models import ExecuCodeAction
 from execucode.server.environment import ExecuCodeEnvironment
 from execucode.tasks import ALL_TASKS
+from execucode.utils import extract_code
 
 
 def _assert_reward_range(reward: float) -> None:
@@ -46,6 +49,14 @@ def test_deterministic_grading() -> None:
         assert first.quality == second.quality
 
 
+def test_grading_does_not_mutate_task_test_inputs() -> None:
+    for task in ALL_TASKS:
+        before_inputs = deepcopy([case.input_args for case in task.test_cases])
+        grade_submission(task.reference_solution, task)
+        after_inputs = [case.input_args for case in task.test_cases]
+        assert after_inputs == before_inputs
+
+
 def test_reset_cycles_tasks() -> None:
     env = ExecuCodeEnvironment()
     observed = [env.reset().metadata["task_id"] for _ in range(5)]
@@ -65,11 +76,22 @@ def test_state_updates() -> None:
     assert env.state.best_reward == observation.reward
 
 
+def test_extract_code_handles_common_markdown_variants() -> None:
+    task = ALL_TASKS[0]
+    fenced = f"```Python\n{task.reference_solution}\n```"
+    assert extract_code(fenced).strip() == task.reference_solution.strip()
+
+    missing_closing_fence = f"```py\n{task.reference_solution}\n"
+    assert extract_code(missing_closing_fence).strip() == task.reference_solution.strip()
+
+
 def main() -> None:
     test_all_tasks_with_reference_solutions()
     test_deterministic_grading()
+    test_grading_does_not_mutate_task_test_inputs()
     test_reset_cycles_tasks()
     test_state_updates()
+    test_extract_code_handles_common_markdown_variants()
     print("All ExecuCode validation checks passed.")
 
 

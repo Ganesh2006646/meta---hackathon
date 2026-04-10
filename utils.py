@@ -8,22 +8,38 @@ from copy import deepcopy
 from typing import Any
 
 
-_CODE_BLOCK_RE = re.compile(r"```(?:python|py)?\s*\n(.*?)```", re.DOTALL)
+_CODE_BLOCK_RE = re.compile(
+    r"```(?:\s*(?:python|py))?\s*\r?\n(.*?)```",
+    re.DOTALL | re.IGNORECASE,
+)
+_FENCE_OPEN_RE = re.compile(r"^```(?:\s*(?:python|py))?\s*$", re.IGNORECASE)
 _ALLOWED_MODULES = {"collections", "functools", "itertools", "math", "re", "string"}
 
 
 def extract_code(message: str) -> str:
     """Extract Python code from markdown or raw agent text."""
 
-    blocks = _CODE_BLOCK_RE.findall(message)
+    stripped_message = message.strip()
+    blocks = _CODE_BLOCK_RE.findall(stripped_message)
     if blocks:
         return blocks[-1].strip()
 
-    match = re.search(r"(def\s+\w+\s*\(.*)", message, re.DOTALL)
+    # Gracefully handle partially fenced blocks that may miss the final fence.
+    if stripped_message.startswith("```"):
+        lines = stripped_message.splitlines()
+        if lines and _FENCE_OPEN_RE.match(lines[0].strip()):
+            remaining_lines = lines[1:]
+            if remaining_lines and remaining_lines[-1].strip() == "```":
+                remaining_lines = remaining_lines[:-1]
+            unfenced = "\n".join(remaining_lines).strip()
+            if unfenced:
+                return unfenced
+
+    match = re.search(r"(def\s+\w+\s*\(.*)", stripped_message, re.DOTALL)
     if match:
         return match.group(1).strip()
 
-    return message.strip()
+    return stripped_message
 
 
 def _safe_import(
@@ -125,7 +141,12 @@ def safe_exec(
     if not callable(function):
         return False, None, f"'{function_name}' exists but is not callable."
 
-    ok, result, error = _run_with_timeout(lambda: function(*input_args), timeout)
+    try:
+        call_args = deepcopy(input_args)
+    except Exception:  # noqa: BLE001 - fallback for non-copyable values
+        call_args = input_args
+
+    ok, result, error = _run_with_timeout(lambda: function(*call_args), timeout)
     if not ok:
         return False, None, f"Runtime error: {error}"
     return True, result, None
@@ -156,8 +177,13 @@ def safe_exec_sequence(
 
     results: list[tuple[bool, Any, str | None]] = []
     for input_args in input_args_list:
+        try:
+            call_args = deepcopy(input_args)
+        except Exception:  # noqa: BLE001 - fallback for non-copyable values
+            call_args = input_args
+
         ok, result, call_error = _run_with_timeout(
-            lambda args=input_args: function(*args),
+            lambda args=call_args: function(*args),
             timeout,
         )
         if not ok:

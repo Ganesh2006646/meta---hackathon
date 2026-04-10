@@ -305,11 +305,12 @@ def _score_performance(code: str, task: Task) -> tuple[float, list[str]]:
     ]
 
     if optimal_matches:
-        bonus = min(0.12, 0.04 * len(optimal_matches))
+        bonus = min(0.50, 0.20 * len(optimal_matches))
         score += bonus
-        notes.append(f"Matched {len(optimal_matches)} task-specific optimal pattern(s).")
+        notes.append(f"Matched {len(optimal_matches)} task-specific optimal pattern(s) for a huge bonus!")
+        
     if anti_matches:
-        penalty = min(0.25, 0.12 * len(anti_matches))
+        penalty = min(0.40, 0.20 * len(anti_matches))
         score -= penalty
         notes.append(f"Matched {len(anti_matches)} task-specific anti-pattern(s).")
 

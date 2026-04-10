@@ -46,6 +46,24 @@ def test_grader_scores_are_strictly_between_zero_and_one() -> None:
             assert 0.0 < component_score < 1.0
 
 
+def test_grader_accepts_markdown_fenced_submission() -> None:
+    task = ALL_TASKS[0]
+    fenced_submission = f"```Python\n{task.reference_solution}\n```"
+    response = client.post(
+        "/grader",
+        json={"task_id": task.task_id, "code": fenced_submission},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["score"] >= 0.95
+
+
+def test_pattern_fields_are_tuples() -> None:
+    for task in ALL_TASKS:
+        assert isinstance(task.optimal_patterns, tuple)
+        assert isinstance(task.anti_patterns, tuple)
+
+
 def test_baseline_scores_are_strictly_between_zero_and_one() -> None:
     response = client.post("/baseline", json={})
     assert response.status_code == 200
@@ -55,4 +73,3 @@ def test_baseline_scores_are_strictly_between_zero_and_one() -> None:
     assert len(scores) >= 3
     assert 0.0 < payload["average"] < 1.0
     assert all(0.0 < score < 1.0 for score in scores.values())
-
