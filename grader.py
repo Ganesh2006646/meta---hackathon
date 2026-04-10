@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import ast
 import re
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
 try:
     from .tasks import Task
-    from .utils import safe_exec
+    from .utils import safe_exec_sequence
 except ImportError:
     from tasks import Task
-    from utils import safe_exec
+    from utils import safe_exec_sequence
 
 
 @dataclass(frozen=True)
@@ -185,26 +186,53 @@ def _extract_performance_signals(target: ast.FunctionDef) -> _PerformanceSignals
     return visitor.to_signals()
 
 
+def _snapshot(value: Any) -> Any:
+    try:
+        return deepcopy(value)
+    except Exception:  # noqa: BLE001 - fallback for non-copyable values
+        return value
+
+
 def _score_correctness(code: str, task: Task) -> tuple[float, list[dict[str, Any]]]:
     details: list[dict[str, Any]] = []
     correct = 0
+    input_args_list = [test_case.input_args for test_case in task.test_cases]
 
-    for index, test_case in enumerate(task.test_cases, start=1):
-        ok, actual, error = safe_exec(
-            code=code,
-            function_name=task.function_name,
-            input_args=test_case.input_args,
-            timeout=3.0,
-        )
+    ran, run_results, run_error = safe_exec_sequence(
+        code=code,
+        function_name=task.function_name,
+        input_args_list=input_args_list,
+        timeout=3.0,
+    )
+
+    if not ran:
+        for index, test_case in enumerate(task.test_cases, start=1):
+            details.append(
+                {
+                    "index": index,
+                    "input": _snapshot(test_case.input_args),
+                    "expected": _snapshot(test_case.expected_output),
+                    "actual": None,
+                    "error": run_error,
+                    "passed": False,
+                }
+            )
+        return 0.0, details
+
+    for index, (test_case, result) in enumerate(
+        zip(task.test_cases, run_results),
+        start=1,
+    ):
+        ok, actual, error = result
         passed = ok and actual == test_case.expected_output
         if passed:
             correct += 1
         details.append(
             {
                 "index": index,
-                "input": test_case.input_args,
-                "expected": test_case.expected_output,
-                "actual": actual,
+                "input": _snapshot(test_case.input_args),
+                "expected": _snapshot(test_case.expected_output),
+                "actual": _snapshot(actual),
                 "error": error,
                 "passed": passed,
             }

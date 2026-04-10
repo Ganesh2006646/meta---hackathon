@@ -6,6 +6,7 @@ import os
 from typing import Any
 
 from fastapi import HTTPException
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 try:
@@ -129,18 +130,230 @@ def _extract_submission(payload: GraderRequest) -> str:
     )
 
 
-@app.get("/")
-def root() -> dict[str, Any]:
-    """Simple landing payload for HF Space root path."""
+@app.get("/", response_class=HTMLResponse)
+def serve_homepage() -> HTMLResponse:
+    """Serves an interactive HTML dashboard for hackathon judges."""
 
-    return {
-        "name": "ExecuCode Env",
-        "status": "ok",
-        "docs": "/docs",
-        "tasks_endpoint": "/tasks",
-        "grader_endpoint": "POST /grader",
-        "baseline_endpoint": "POST /baseline",
-    }
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>ExecuCode Environment</title>
+        <style>
+            :root {
+                --bg: #edf2f7;
+                --panel: #ffffff;
+                --ink: #1f2937;
+                --muted: #4b5563;
+                --primary: #1769e0;
+                --primary-hover: #0f4ca8;
+                --ok: #1f7a3f;
+                --warn: #996500;
+                --err: #b3261e;
+                --border: #d1d5db;
+                --code-bg: #1f2937;
+                --shadow: 0 12px 30px rgba(16, 24, 40, 0.12);
+            }
+
+            * {
+                box-sizing: border-box;
+            }
+
+            body {
+                margin: 0;
+                font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+                color: var(--ink);
+                background:
+                    radial-gradient(1200px 600px at -10% -20%, #dbeafe 0%, transparent 60%),
+                    radial-gradient(900px 500px at 110% -10%, #d1fae5 0%, transparent 55%),
+                    var(--bg);
+                min-height: 100vh;
+                padding: 32px 16px;
+                display: flex;
+                justify-content: center;
+            }
+
+            .container {
+                width: 100%;
+                max-width: 900px;
+                background: var(--panel);
+                border-radius: 14px;
+                box-shadow: var(--shadow);
+                padding: 28px;
+            }
+
+            h1 {
+                margin: 0 0 8px;
+                color: var(--primary);
+            }
+
+            p {
+                margin: 10px 0;
+                line-height: 1.55;
+                color: var(--muted);
+            }
+
+            .help-links {
+                display: flex;
+                gap: 10px;
+                flex-wrap: wrap;
+                margin-top: 12px;
+            }
+
+            .help-links a {
+                color: var(--primary);
+                text-decoration: none;
+                font-weight: 600;
+            }
+
+            .help-links a:hover {
+                text-decoration: underline;
+            }
+
+            label {
+                display: block;
+                margin-top: 16px;
+                margin-bottom: 6px;
+                font-weight: 700;
+            }
+
+            select,
+            textarea {
+                width: 100%;
+                border: 1px solid var(--border);
+                border-radius: 10px;
+                padding: 12px;
+                font-size: 15px;
+            }
+
+            select {
+                background: #fff;
+            }
+
+            textarea {
+                min-height: 220px;
+                resize: vertical;
+                font-family: "Courier New", Courier, monospace;
+            }
+
+            button {
+                margin-top: 14px;
+                width: 100%;
+                border: none;
+                border-radius: 10px;
+                padding: 12px 16px;
+                font-size: 16px;
+                font-weight: 700;
+                cursor: pointer;
+                color: #fff;
+                background: var(--primary);
+                transition: background 0.15s ease;
+            }
+
+            button:hover:not(:disabled) {
+                background: var(--primary-hover);
+            }
+
+            button:disabled {
+                opacity: 0.7;
+                cursor: not-allowed;
+            }
+
+            pre {
+                margin-top: 10px;
+                background: var(--code-bg);
+                color: #b9f3c9;
+                border-radius: 10px;
+                padding: 14px;
+                white-space: pre-wrap;
+                overflow-x: auto;
+                min-height: 120px;
+            }
+
+            @media (max-width: 640px) {
+                body {
+                    padding: 18px 10px;
+                }
+                .container {
+                    padding: 16px;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <main class="container">
+            <h1>ExecuCode Sandbox</h1>
+            <p>
+                ExecuCode is an execution-aware coding environment that grades submissions
+                on <strong>Correctness</strong>, <strong>Performance</strong>, and
+                <strong>Code Quality</strong> instead of pass/fail only.
+            </p>
+            <p>Paste a Python function, run the grader, and review feedback instantly.</p>
+            <div class="help-links">
+                <a href="/docs" target="_blank" rel="noreferrer">API Docs</a>
+                <a href="/tasks" target="_blank" rel="noreferrer">List Tasks</a>
+            </div>
+
+            <label for="task">Select a coding task</label>
+            <select id="task">
+                <option value="0">Task 0 (Easy): append_to_history (mutable default)</option>
+                <option value="1">Task 1 (Medium): count_paths (memoized DP)</option>
+                <option value="2">Task 2 (Hard): chunk_document (RAG chunker)</option>
+            </select>
+
+            <label for="codeBox">Python submission</label>
+            <textarea id="codeBox" placeholder="# Paste your Python code here...
+def my_function():
+    pass"></textarea>
+            <button id="submitBtn" onclick="submitCode()">Run Grader</button>
+
+            <label for="output">Grading feedback</label>
+            <pre id="output">Waiting for submission...</pre>
+        </main>
+
+        <script>
+            async function submitCode() {
+                const output = document.getElementById("output");
+                const btn = document.getElementById("submitBtn");
+                const taskId = parseInt(document.getElementById("task").value, 10);
+                const code = document.getElementById("codeBox").value;
+
+                output.style.color = "var(--warn)";
+                output.innerText = "Executing in restricted sandbox... Please wait.";
+                btn.disabled = true;
+                btn.innerText = "Grading...";
+
+                try {
+                    const response = await fetch("/grader", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ task_id: taskId, code: code }),
+                    });
+
+                    const data = await response.json();
+                    if (!response.ok) {
+                        output.style.color = "var(--err)";
+                        output.innerText = JSON.stringify(data, null, 2);
+                        return;
+                    }
+
+                    output.style.color = "var(--ok)";
+                    output.innerText = data.feedback ? data.feedback : JSON.stringify(data, null, 2);
+                } catch (error) {
+                    output.style.color = "var(--err)";
+                    output.innerText = "Error connecting to server: " + error;
+                } finally {
+                    btn.disabled = false;
+                    btn.innerText = "Run Grader";
+                }
+            }
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
 
 
 @app.get("/tasks")

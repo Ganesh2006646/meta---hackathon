@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import threading
+from copy import deepcopy
 from typing import Any
 
 
@@ -130,74 +131,115 @@ def safe_exec(
     return True, result, None
 
 
+def safe_exec_sequence(
+    code: str,
+    function_name: str,
+    input_args_list: list[tuple[Any, ...]],
+    timeout: float = 5.0,
+) -> tuple[bool, list[tuple[bool, Any, str | None]], str | None]:
+    """Execute code once and run the target function for each input in order."""
+
+    namespace: dict[str, Any] = {"__builtins__": _SAFE_BUILTINS.copy()}
+
+    def _define_function() -> None:
+        exec(code, namespace)  # noqa: S102 - intentional graded execution
+
+    ok, _, error = _run_with_timeout(_define_function, timeout)
+    if not ok:
+        return False, [], f"Compilation/definition error: {error}"
+
+    function = namespace.get(function_name)
+    if function is None:
+        return False, [], f"Function '{function_name}' not found."
+    if not callable(function):
+        return False, [], f"'{function_name}' exists but is not callable."
+
+    results: list[tuple[bool, Any, str | None]] = []
+    for input_args in input_args_list:
+        ok, result, call_error = _run_with_timeout(
+            lambda args=input_args: function(*args),
+            timeout,
+        )
+        if not ok:
+            results.append((False, None, f"Runtime error: {call_error}"))
+        else:
+            try:
+                snapshot = deepcopy(result)
+            except Exception:  # noqa: BLE001 - fallback for non-copyable objects
+                snapshot = result
+            results.append((True, snapshot, None))
+
+    return True, results, None
+
+
 def generate_feedback(
     correctness_score: float,
     performance_score: float,
     quality_score: float,
     total_reward: float,
-    test_details: list[dict[str, Any]],
-    performance_notes: list[str],
-    quality_notes: list[str],
+    test_details: str | list[dict[str, Any]],
+    performance_notes: str | list[str],
+    quality_notes: str | list[str],
     is_done: bool,
     step_count: int,
     max_attempts: int,
 ) -> str:
-    """Build deterministic text feedback for the agent."""
+    """Generates a well-organized, readable feedback string for the agent."""
 
-    passed = sum(1 for detail in test_details if detail["passed"])
-    total = len(test_details)
-    lines = [
-        f"Step {step_count}/{max_attempts} evaluation",
-        f"Total reward: {total_reward:.3f} / 1.000",
-        (
-            f"Score breakdown: correctness={correctness_score:.3f}, "
-            f"performance={performance_score:.3f}, quality={quality_score:.3f}"
-        ),
-        f"Correctness: {correctness_score:.3f} ({passed}/{total} tests passed)",
+    solved = bool(is_done and total_reward >= 0.95)
+    status_icon = "Solved" if solved else "Needs Improvement"
+
+    if isinstance(test_details, list):
+        total_tests = len(test_details)
+        passed_tests = sum(1 for detail in test_details if detail.get("passed"))
+        test_details_text = (
+            f"({passed_tests}/{total_tests} tests passed)" if total_tests else ""
+        )
+    else:
+        test_details_text = test_details.strip()
+
+    if isinstance(performance_notes, list):
+        perf_notes = [note.strip() for note in performance_notes if note and note.strip()]
+        performance_notes_text = f"- {' '.join(perf_notes)}" if perf_notes else ""
+    else:
+        performance_notes_text = performance_notes.strip()
+
+    if isinstance(quality_notes, list):
+        qual_notes = [note.strip() for note in quality_notes if note and note.strip()]
+        quality_notes_text = f"- {' '.join(qual_notes)}" if qual_notes else ""
+    else:
+        quality_notes_text = quality_notes.strip()
+
+    feedback_lines = [
+        f"### Evaluation (Attempt {step_count}/{max_attempts})",
+        f"**Status:** {status_icon} | **Total Reward:** {total_reward:.3f} / 1.000",
+        "",
+        "#### Score Breakdown",
+        f"* **Correctness:** {correctness_score:.3f} {test_details_text or ''}".strip(),
+        f"* **Performance:** {performance_score:.3f} {performance_notes_text or ''}".strip(),
+        f"* **Quality:** {quality_score:.3f} {quality_notes_text or ''}".strip(),
+        "",
+        "#### Suggested Next Actions",
     ]
 
-    failed_tests = [detail for detail in test_details if not detail["passed"]]
-    shown_failures = failed_tests[:5]
-
-    for detail in shown_failures:
-        lines.append(
-            "Failed test "
-            f"{detail['index']}: input={detail['input']!r}, "
-            f"expected={detail['expected']!r}, actual={detail['actual']!r}"
-        )
-        if detail.get("error"):
-            lines.append(f"Error: {detail['error']}")
-    if len(failed_tests) > len(shown_failures):
-        lines.append(
-            f"... {len(failed_tests) - len(shown_failures)} more failing tests omitted."
-        )
-
-    lines.append(f"Performance: {performance_score:.3f}")
-    lines.extend(f"- {note}" for note in performance_notes)
-
-    lines.append(f"Code quality: {quality_score:.3f}")
-    lines.extend(f"- {note}" for note in quality_notes)
-
-    next_actions: list[str] = []
-    if correctness_score < 1.0:
-        next_actions.append("Fix failing correctness cases first.")
-    if performance_score < 0.85:
-        next_actions.append(
-            "Reduce algorithmic complexity (avoid nested loops and linear membership checks)."
-        )
-    if quality_score < 0.85:
-        next_actions.append("Improve readability (docstring, naming, and concise logic).")
-    if not next_actions:
-        next_actions.append("Keep this structure; only make minimal safe refinements.")
-
-    lines.append("Suggested next actions:")
-    lines.extend(f"- {action}" for action in next_actions)
-
-    if is_done and total_reward >= 0.95:
-        lines.append("Status: solved.")
-    elif is_done:
-        lines.append(f"Status: maximum attempts reached at reward {total_reward:.3f}.")
+    if solved:
+        feedback_lines.append("* Excellent work! The task is fully optimized and solved.")
     else:
-        lines.append(f"Status: {max_attempts - step_count} attempts remaining.")
+        if correctness_score < 0.95:
+            feedback_lines.append(
+                "* Fix failing correctness tests first to ensure the logic works."
+            )
+        elif performance_score < 0.95:
+            feedback_lines.append(
+                "* Code logic is correct, but needs performance optimization (check for O(n^2) loops)."
+            )
+        elif quality_score < 0.95:
+            feedback_lines.append(
+                "* Improve code readability (e.g., add docstrings or more descriptive variable names)."
+            )
+        else:
+            feedback_lines.append(
+                "* Solid progress. Keep refining edge cases and maintain clean structure."
+            )
 
-    return "\n".join(lines)
+    return "\n".join(feedback_lines)
