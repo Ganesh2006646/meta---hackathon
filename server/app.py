@@ -513,7 +513,7 @@ const TASKS = [
       "history argument provided",
       "empty-list input remains isolated",
     ],
-    code: `def append_to_history(item, history=None):\n    \"\"\"Append an item and return a list without leaking default state.\"\"\"\n    if history is None:\n        history = []\n    history.append(item)\n    return history`
+    code: `def append_to_history(item, history=[]):\n    \"\"\"Append an item and return a list without leaking default state.\"\"\"\n    history.append(item)\n    return history`
   },
   {
     id: 1, difficulty: "medium", title: "Grid Path Counting (DP)", fn: "count_paths",
@@ -546,7 +546,7 @@ const TASKS = [
       "missing keys in request_log entries",
       "max_requests set to zero",
     ],
-    code: `def is_allowed(\n    user_id: str,\n    current_time: float,\n    request_log: list[dict],\n    max_requests: int,\n    window_seconds: float,\n) -> bool:\n    \"\"\"Return True if the user has fewer than max_requests in the sliding window.\"\"\"\n    if max_requests <= 0:\n        return False\n\n    window_start = current_time - window_seconds\n    count = sum(\n        1\n        for entry in request_log\n        if entry.get("user_id") == user_id and entry.get("timestamp", 0) > window_start\n    )\n    return count < max_requests`
+    code: `def is_allowed(\n    user_id: str,\n    current_time: float,\n    request_log: list[dict],\n    max_requests: int,\n    window_seconds: float,\n) -> bool:\n    \"\"\"Return True if the user has fewer than max_requests in the sliding window.\n\n    Uses a generator expression with early exit via sum() to avoid building an\n    intermediate list and short-circuits as soon as the limit is reached.\n    \"\"\"\n    if max_requests <= 0:\n        return False\n\n    window_start = current_time - window_seconds\n    count = sum(\n        1\n        for entry in request_log\n        if entry.get("user_id") == user_id and entry.get("timestamp", 0) > window_start\n    )\n    return count < max_requests`
   },
 ];
 
