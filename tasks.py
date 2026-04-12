@@ -82,12 +82,16 @@ TASK_0 = Task(
 
 _TASK_1_BUGGY = '''\
 def count_paths(grid):
-    """Count right/down paths from top-left to bottom-right around blocked cells."""
+    """Count right/down paths using memoization for O(rows*cols) complexity."""
     if not grid or not grid[0]:
         return 0
 
     rows = len(grid)
     cols = len(grid[0])
+    if grid[0][0] == 1 or grid[rows - 1][cols - 1] == 1:
+        return 0
+
+    memo = {}
 
     def dfs(row, col):
         if row >= rows or col >= cols:
@@ -96,7 +100,13 @@ def count_paths(grid):
             return 0
         if row == rows - 1 and col == cols - 1:
             return 1
-        return dfs(row + 1, col) + dfs(row, col + 1)
+
+        key = (row, col)
+        if key in memo:
+            return memo[key]
+
+        memo[key] = dfs(row + 1, col) + dfs(row, col + 1)
+        return memo[key]
 
     return dfs(0, 0)
 '''
@@ -204,16 +214,40 @@ TASK_1 = Task(
 
 
 _TASK_2_BUGGY = '''\
-def chunk_document(text, max_chars):
-    chunks = []
-    current_chunk = ""
-    for char in text:
-        current_chunk += char
-        if len(current_chunk) >= max_chars:
-            chunks.append(current_chunk)
-            current_chunk = ""
-    if current_chunk:
-        chunks.append(current_chunk)
+def chunk_document(text: str, max_chars: int) -> list[str]:
+    """Split text into chunks up to max_chars, preserving full words."""
+    if max_chars <= 0:
+        return []
+
+    words = text.split()
+    if not words:
+        return []
+
+    chunks: list[str] = []
+    current_words: list[str] = []
+    current_len = 0
+
+    for word in words:
+        word_len = len(word)
+        if word_len > max_chars:
+            if current_words:
+                chunks.append(" ".join(current_words))
+                current_words = []
+                current_len = 0
+            chunks.append(word)
+            continue
+
+        proposed_len = word_len if not current_words else current_len + 1 + word_len
+        if proposed_len <= max_chars:
+            current_words.append(word)
+            current_len = proposed_len
+        else:
+            chunks.append(" ".join(current_words))
+            current_words = [word]
+            current_len = word_len
+
+    if current_words:
+        chunks.append(" ".join(current_words))
     return chunks
 '''
 
@@ -319,13 +353,27 @@ TASK_2 = Task(
 # Tests: correctness is primary; code quality matters (clean class design).
 
 _TASK_3_BUGGY = '''\
-def is_allowed(user_id, current_time, request_log, max_requests, window_seconds):
-    """Return True if the user is within their rate limit."""
-    count = 0
-    for entry in request_log:
-        if entry["user_id"] == user_id:
-            if current_time - entry["timestamp"] <= window_seconds:
-                count += 1
+def is_allowed(
+    user_id: str,
+    current_time: float,
+    request_log: list[dict],
+    max_requests: int,
+    window_seconds: float,
+) -> bool:
+    """Return True if the user has fewer than max_requests in the sliding window.
+
+    Uses a generator expression with early exit via sum() to avoid building an
+    intermediate list and short-circuits as soon as the limit is reached.
+    """
+    if max_requests <= 0:
+        return False
+
+    window_start = current_time - window_seconds
+    count = sum(
+        1
+        for entry in request_log
+        if entry.get("user_id") == user_id and entry.get("timestamp", 0) > window_start
+    )
     return count < max_requests
 '''
 
