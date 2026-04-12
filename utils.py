@@ -531,7 +531,8 @@ def safe_exec_sequence(
     # deterministic in-process fallback there.
     main_file = getattr(sys.modules.get("__main__"), "__file__", "")
     is_hf_space = os.getenv("SPACE_ID") is not None
-    if os.name == "nt" or is_hf_space or not main_file or str(main_file).startswith("<"):
+    # Always use the in-process fallback for reliability in web interfaces and docker
+    if True:
         return _safe_exec_sequence_in_process(
             code=code,
             function_name=function_name,
@@ -670,15 +671,20 @@ def generate_feedback(
         feedback_lines.append("* 🎉 Excellent work! The task is fully optimized and solved.")
     else:
         if correctness_score < 0.95:
-            failing = [
-                f"  - Test {d['index']}: input={d['input']}, expected={d['expected']}, got={d['actual']}"
-                for d in (test_details if isinstance(test_details, list) else [])
-                if not d.get("passed") and d.get("error") is None
-            ][:3]  # show up to 3 failing cases
-            feedback_lines.append(
-                "* Fix failing correctness tests first to ensure the logic works."
-            )
-            feedback_lines.extend(failing)
+            first_error = next((d.get("error") for d in (test_details if isinstance(test_details, list) else []) if not d.get("passed") and d.get("error")), None)
+            if first_error:
+                error_msg = first_error.get("message", str(first_error)) if isinstance(first_error, dict) else str(first_error)
+                feedback_lines.append(f"* Critical Execution/Compilation Error: {error_msg}")
+            else:
+                failing = [
+                    f"  - Test {d['index']}: input={d['input']}, expected={d['expected']}, got={d['actual']}"
+                    for d in (test_details if isinstance(test_details, list) else [])
+                    if not d.get("passed") and d.get("error") is None
+                ][:3]  # show up to 3 failing cases
+                feedback_lines.append(
+                    "* Fix failing correctness tests first to ensure the logic works."
+                )
+                feedback_lines.extend(failing)
         elif performance_score < 0.80:
             feedback_lines.append(
                 "* Code logic is correct. Optimize performance: eliminate O(n²) loops, "
