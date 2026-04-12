@@ -147,6 +147,13 @@ class _PerformanceVisitor(ast.NodeVisitor):
                     self.hash_lookup_usage += 1
         self.generic_visit(node)
 
+    def visit_Subscript(self, node: ast.Subscript) -> None:  # noqa: N802
+        """Detect dictionary subscript lookups like memo[(m, n)] for DP caching."""
+        if isinstance(node.value, ast.Name):
+            if node.value.id in self._hash_like_names or node.value.id in {"memo", "cache", "dp"}:
+                self.hash_lookup_usage += 1
+        self.generic_visit(node)
+
     def visit_Call(self, node: ast.Call) -> None:  # noqa: N802
         function = node.func
 

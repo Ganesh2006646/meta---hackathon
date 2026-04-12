@@ -711,7 +711,8 @@ def grade_task_submission(request: GraderRequest) -> GraderResponse:
     task = get_task(task_id)
     raw_submission = _extract_submission(request)
     code = extract_code(raw_submission)
-    result = grade_submission(code, task)
+    clean_code = code.replace("```python", "").replace("```", "").strip()
+    result = grade_submission(clean_code, task)
 
     feedback = generate_feedback(
         correctness_score=result.correctness,

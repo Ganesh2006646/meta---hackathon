@@ -619,6 +619,7 @@ def generate_feedback(
     is_done: bool,
     step_count: int,
     max_attempts: int,
+    ai_mentor_tip: str = "",
 ) -> str:
     """Generates a well-organized, readable feedback string for the agent."""
 
@@ -691,5 +692,10 @@ def generate_feedback(
             feedback_lines.append(
                 "* Solid progress. Keep refining edge cases and maintain clean structure."
             )
+
+    if ai_mentor_tip:
+        feedback_lines.append("")
+        feedback_lines.append("#### 🤖 AI Mentor Final Review")
+        feedback_lines.append(ai_mentor_tip)
 
     return "\n".join(feedback_lines)
