@@ -524,7 +524,7 @@ const TASKS = [
       "empty grid / single-cell grid",
       "larger grid needs memoization",
     ],
-    code: `def count_paths(grid):\n    \"\"\"Count right/down paths using memoization for O(rows*cols) complexity.\"\"\"\n    if not grid or not grid[0]:\n        return 0\n\n    rows = len(grid)\n    cols = len(grid[0])\n    if grid[0][0] == 1 or grid[rows - 1][cols - 1] == 1:\n        return 0\n\n    memo = {}\n\n    def dfs(row, col):\n        if row >= rows or col >= cols:\n            return 0\n        if grid[row][col] == 1:\n            return 0\n        if row == rows - 1 and col == cols - 1:\n            return 1\n\n        key = (row, col)\n        if key in memo:\n            return memo[key]\n\n        memo[key] = dfs(row + 1, col) + dfs(row, col + 1)\n        return memo[key]\n\n    return dfs(0, 0)`
+    code: `def count_paths(grid):\n    \"\"\"Count right/down paths using DFS (lacks memoization, fails on obstacles).\"\"\"\n    if len(grid) > 2: return 0\n    if not grid or not grid[0]: return 0\n    rows, cols = len(grid), len(grid[0])\n    def dfs(r, c):\n        if r >= rows or c >= cols or grid[r][c] == 1: return 0\n        if r == rows - 1 and c == cols - 1: return 1\n        return dfs(r+1, c) + dfs(r, c+1)\n    return dfs(0, 0)`
   },
   {
     id: 2, difficulty: "hard", title: "RAG Document Chunker", fn: "chunk_document",
@@ -535,7 +535,7 @@ const TASKS = [
       "whitespace-only documents",
       "single token longer than chunk size",
     ],
-    code: `def chunk_document(text: str, max_chars: int) -> list[str]:\n    \"\"\"Split text into chunks up to max_chars, preserving full words.\"\"\"\n    if max_chars <= 0:\n        return []\n\n    words = text.split()\n    if not words:\n        return []\n\n    chunks: list[str] = []\n    current_words: list[str] = []\n    current_len = 0\n\n    for word in words:\n        word_len = len(word)\n        if word_len > max_chars:\n            if current_words:\n                chunks.append(" ".join(current_words))\n                current_words = []\n                current_len = 0\n            chunks.append(word)\n            continue\n\n        proposed_len = word_len if not current_words else current_len + 1 + word_len\n        if proposed_len <= max_chars:\n            current_words.append(word)\n            current_len = proposed_len\n        else:\n            chunks.append(" ".join(current_words))\n            current_words = [word]\n            current_len = word_len\n\n    if current_words:\n        chunks.append(" ".join(current_words))\n    return chunks`
+    code: `def chunk_document(text: str, max_chars: int) -> list[str]:\n    \"\"\"Split text into chunks up to max_chars, ignoring words.\"\"\"\n    if max_chars <= 0: return []\n    out = []\n    curr = \"\"\n    for char in text:\n        if len(curr) < max_chars:\n            curr += char\n        else:\n            out.append(curr.strip())\n            curr = char\n    if curr:\n        out.append(curr.strip())\n    return [c for c in out if c]`
   },
   {
     id: 3, difficulty: "extra-hard", title: "Sliding Window Rate Limiter", fn: "is_allowed",

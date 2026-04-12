@@ -530,7 +530,8 @@ def safe_exec_sequence(
     # Windows and interactive runners can be fragile with `spawn`; use a
     # deterministic in-process fallback there.
     main_file = getattr(sys.modules.get("__main__"), "__file__", "")
-    if os.name == "nt" or not main_file or str(main_file).startswith("<"):
+    is_hf_space = os.getenv("SPACE_ID") is not None
+    if os.name == "nt" or is_hf_space or not main_file or str(main_file).startswith("<"):
         return _safe_exec_sequence_in_process(
             code=code,
             function_name=function_name,
