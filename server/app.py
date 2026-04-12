@@ -713,6 +713,31 @@ def health_check() -> dict[str, str]:
     """Liveness endpoint for validators and deployments."""
     return {"status": "ok", "env": "execucode"}
 
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+
+def _get_ai_tip(code: str, task_title: str, total_reward: float) -> str:
+    """Zero-crash integration of an AI Mentor to provide a custom snippet tip."""
+    if not OpenAI or not os.getenv("OPENAI_API_KEY"):
+        return ""
+    if total_reward >= 0.95:
+        return "Flawless optimization. You truly write production-grade code!"
+    
+    try:
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        prompt = f"The student failed to get 100% on a Python task called '{task_title}'. They got a reward of {total_reward:.3f}.\nTheir code:\n{code}\nGive a very encouraging 1 sentence hint (max 15 words) on what to look closely at (e.g. edge cases, loops, or variables)."
+        resp = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=30,
+            temperature=0.7
+        )
+        return resp.choices[0].message.content.strip()
+    except Exception:
+        return ""
+
 
 @app.post("/grader", response_model=GraderResponse)
 def grade_task_submission(request: GraderRequest) -> GraderResponse:
@@ -723,6 +748,8 @@ def grade_task_submission(request: GraderRequest) -> GraderResponse:
     code = extract_code(raw_submission)
     clean_code = code.replace("```python", "").replace("```", "").strip()
     result = grade_submission(clean_code, task)
+
+    ai_mentor_tip = _get_ai_tip(clean_code, task.title, result.reward)
 
     feedback = generate_feedback(
         correctness_score=result.correctness,
@@ -735,6 +762,7 @@ def grade_task_submission(request: GraderRequest) -> GraderResponse:
         is_done=result.reward >= 0.95,
         step_count=1,
         max_attempts=1,
+        ai_mentor_tip=ai_mentor_tip,
     )
 
     return GraderResponse(
