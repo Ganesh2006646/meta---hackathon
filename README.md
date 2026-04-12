@@ -7,20 +7,17 @@ sdk: docker
 app_port: 8000
 ---
 
-# ExecuCode
+# ExecuCode: Multi-Objective AST Grader
 
-ExecuCode is an execution-aware OpenEnv environment for evaluating coding agents on more than final correctness. Each submission is graded on deterministic tests, performance signals, and code quality so agents can improve over multiple attempts instead of optimizing for a single pass/fail outcome.
+ExecuCode introduces a fundamentally new way to evaluate AI-generated code. Instead of relying solely on binary unit testing (pass/fail), ExecuCode operates as a **Multi-Objective AST Grader** that evaluates submissions across three distinct pillars: Correctness, Performance, and Code Quality. It simulates the exact code review process a senior engineer would employ, scrutinizing not just whether the output is correct, but how efficiently and beautifully it was achieved.
 
-## What It Does
+Under the hood, ExecuCode safely executes AI submissions inside an isolated memory-monitored sandbox to deter resource abuse and test state leakage. However, its true power lies in its deep **Abstract Syntax Tree (AST) analysis**. As the code runs, the AST Visitor statically dissects the submission to detect optimal algorithm patterns (like dynamic programming memoization, generator expressions, and hash-based lookups) while violently penalizing nested loops, mutable default arguments, and computational anti-patterns. 
 
-ExecuCode runs an iterative optimization loop:
+This strict, deterministic feedback loop forces AI agents to engage in iterative optimization. When an agent submits a brute-force approach, ExecuCode rejects it with specific execution metrics and AST-targeted guidance (e.g., "Linear membership checks detected. Optimize with a hash map"). The result is an environment perfectly built to push large language models beyond simply "working" code—demanding production-ready, highly optimal, and Pythonic solutions.
 
-1. An agent receives a buggy Python function and task description.
-2. The agent submits a full replacement implementation.
-3. The environment executes deterministic checks and static heuristics.
-4. The agent receives structured feedback, component scores, and a shaped reward.
+## Interactive Web UI
 
-The reward is always clamped to the strict open interval `(0.001, 0.999)` for validator compatibility.
+![ExecuCode Web UI](./screenshot.png)
 
 ## Task Suite
 
@@ -29,7 +26,7 @@ The reward is always clamped to the strict open interval `(0.001, 0.999)` for va
 | `0` | Mutable default argument | Easy | Python correctness |
 | `1` | Grid path counting | Medium | Dynamic programming and memoization |
 | `2` | RAG document chunker | Hard | Text processing, edge cases, readability |
-| `3` | Sliding window rate limiter | Hard | API infra logic, edge cases, code quality |
+| `3` | Sliding window rate limiter | Extra-Hard | API infra logic, edge cases, code quality |
 
 ### Reward weights
 
@@ -43,133 +40,23 @@ The reward is always clamped to the strict open interval `(0.001, 0.999)` for va
 ## Project Layout
 
 - `tasks.py`: immutable task definitions, test cases, reference solutions, scoring weights
-- `grader.py`: deterministic grading pipeline and score aggregation
-- `utils.py`: code extraction, restricted execution, feedback formatting
+- `grader.py`: deterministic grading pipeline, OpenEnv metrics, and AST analysis
+- `utils.py`: code extraction, restricted execution, feedback formatting, AI Mentor integrations
 - `server/environment.py`: `ExecuCodeEnvironment` implementation used by OpenEnv
 - `environment.py`: package-root shim for OpenEnv validator discovery
-- `server/app.py`: FastAPI app, dashboard UI, and task/grader endpoints
-- `test_openenv.py`: scriptable validation checks for environment behavior
-- `test_hackathon_endpoints.py`: endpoint regression coverage
-- `openenv.yaml`: environment metadata and endpoint contract
+- `server/app.py`: FastAPI app, interactive markdown dashboard UI, and task/grader endpoints
+- `pyproject.toml`: Dependency tracking and build definitions
 
-## API Surface
+## Local Development & Docker
 
-Core endpoints:
-
-- `GET /`: interactive dashboard for trying tasks manually
-- `GET /tasks`: task catalog, metadata, and grader wiring
-- `GET /health`: liveness endpoint, currently returns `{"status": "healthy"}`
-- `POST /grader`: grades one submission and returns score, breakdown, feedback, and test details
-- `POST /baseline`: grades the bundled reference solutions deterministically
-
-OpenEnv routes are also exposed through the app integration:
-
-- `POST /reset`
-- `POST /step`
-- `GET /state`
-
-## Local Development
-
-From the repository root:
-
-```powershell
-uv sync --extra test
-```
-
-Run the built-in validation script:
-
-```powershell
-uv run python test_openenv.py
-```
-
-Run the endpoint regression suite:
-
-```powershell
-uv run pytest -q
-```
-
-Start the local server:
+Start the local server with hot-reloading:
 
 ```powershell
 uv run uvicorn execucode.server.app:app --host 127.0.0.1 --port 8000
 ```
 
-Then open `http://127.0.0.1:8000`.
-
-## Example Grader Request
-
-```json
-{
-  "task_id": 0,
-  "code": "def append_to_history(item, history=None):\n    if history is None:\n        history = []\n    history.append(item)\n    return history"
-}
-```
-
-Typical response shape:
-
-```json
-{
-  "task_id": 0,
-  "score": 0.999,
-  "breakdown": {
-    "correctness": 0.999,
-    "performance": 0.999,
-    "quality": 0.999
-  },
-  "feedback": "### Evaluation (Attempt 1/10)\n...",
-  "test_details": []
-}
-```
-
-## Docker
-
-The included Dockerfile uses `python:3.12-slim`, installs `uv`, and installs the project with:
-
-```powershell
-uv pip install --system --no-cache .
-```
-
-Build and run locally:
-
+To run within a fully contained Docker environment:
 ```powershell
 docker build -t execucode .
 docker run --rm -p 8000:8000 execucode
 ```
-
-## Hugging Face Space
-
-This repo is configured for Docker-based Space deployment. The current Space metadata lives in the frontmatter above, and `openenv.yaml` points the runtime at:
-
-```text
-execucode.server.app:app
-```
-
-## Inference Loop
-
-The repo also includes a client/inference path for running agent episodes against the environment:
-
-```powershell
-python inference.py
-```
-
-Useful environment variables:
-
-- `HF_TOKEN`
-- `API_BASE_URL`
-- `MODEL_NAME`
-- `EPISODE_TIMEOUT_SECONDS`
-
-## Validation Notes
-
-- Grading is deterministic for the same submission and task.
-- The environment cycles through all configured tasks on repeated `reset()` calls.
-- Runtime metadata includes score breakdowns plus execution profile fields such as elapsed time and captured errors when available.
-- The package-root `environment.py` shim is intentionally present so OpenEnv validation can discover `ExecuCodeEnvironment` correctly.
-
-## Stack
-
-- FastAPI
-- OpenEnv
-- Pydantic
-- Uvicorn
-- Python 3.12

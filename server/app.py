@@ -123,6 +123,7 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ExecuCode — AI Code Optimization Environment</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Syne:wght@400;600;800&display=swap" rel="stylesheet" />
   <style>
     :root {
@@ -636,7 +637,11 @@ function showResult(data) {
     </div>`;
   }).join("");
 
-  document.getElementById("feedbackBody").textContent = data.feedback || "";
+  if (data.feedback) {
+    document.getElementById("feedbackBody").innerHTML = marked.parse(data.feedback);
+  } else {
+    document.getElementById("feedbackBody").textContent = "";
+  }
 }
 
 function showError(msg) {
