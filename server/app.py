@@ -236,7 +236,18 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
     .badge.hard   { background: rgba(248,113,113,0.15); color: var(--err); }
     .badge.extra-hard { background: rgba(139,92,246,0.15); color: #8b5cf6; }
     .task-pill h3 { font-size: 0.85rem; font-weight: 600; line-height: 1.3; }
-    .task-pill p  { font-size: 0.75rem; color: var(--muted); margin-top: 4px; font-family: 'JetBrains Mono', monospace; }
+    .task-pill .fn {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-top: 4px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .task-pill .grade-hint {
+      margin-top: 6px;
+      font-size: 0.66rem;
+      color: #475569;
+      font-family: 'JetBrains Mono', monospace;
+    }
 
     /* Editor area */
     .editor-box {
@@ -305,6 +316,45 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
     .run-btn.loading .btn-text { opacity: 0.7; }
     @keyframes spin { to { transform: rotate(360deg); } }
     .hint { font-size: 0.75rem; color: var(--muted); }
+
+    .sample-help {
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      background: #f8fbff;
+      display: grid;
+      gap: 8px;
+    }
+    .sample-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .sample-pill {
+      font-size: 0.7rem;
+      letter-spacing: 0.3px;
+      font-family: 'JetBrains Mono', monospace;
+      color: #0f172a;
+      background: #dbeafe;
+      border: 1px solid #bfdbfe;
+      border-radius: 999px;
+      padding: 3px 10px;
+    }
+    .edge-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .edge-list span {
+      font-size: 0.68rem;
+      color: #334155;
+      background: #eef2ff;
+      border: 1px solid #e0e7ff;
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-family: 'JetBrains Mono', monospace;
+    }
 
     /* Result panel */
     .result-panel {
@@ -413,9 +463,16 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
   <div class="editor-box">
     <div class="editor-header">
       <span class="lang">python</span>
-      <span id="editorLabel">Select a task above, then paste your solution</span>
+      <span id="editorLabel">Select a task above - sample code and edge cases load automatically</span>
     </div>
-    <textarea id="codeBox" spellcheck="false" placeholder="# Paste your Python function here..."></textarea>
+    <div class="sample-help">
+      <div class="sample-head">
+        <span id="gradeTarget" class="sample-pill">Level: 1/4</span>
+        <span id="focusLabel" class="hint">Focus: Correctness fundamentals</span>
+      </div>
+      <div id="edgeCases" class="edge-list"></div>
+    </div>
+    <textarea id="codeBox" spellcheck="false" placeholder="# Sample code loads per task. Edit it, then run grader."></textarea>
     <div class="run-bar">
       <button class="run-btn" id="runBtn" onclick="runGrader()">
         <div class="spinner"></div>
@@ -449,19 +506,47 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
 const TASKS = [
   {
     id: 0, difficulty: "easy", title: "Mutable Default Argument", fn: "append_to_history",
-    code: `def append_to_history(item, history=[]):\n    \"\"\"Append an item and return the history list.\"\"\"\n    history.append(item)\n    return history`
+    gradeTarget: "Level 1/4 - Correctness Core",
+    focus: "Focus: avoid shared mutable defaults and pass basic edge calls.",
+    edgeCases: [
+      "repeat calls with no history",
+      "history argument provided",
+      "empty-list input remains isolated",
+    ],
+    code: `def append_to_history(item, history=None):\n    \"\"\"Append an item and return a list without leaking default state.\"\"\"\n    if history is None:\n        history = []\n    history.append(item)\n    return history`
   },
   {
     id: 1, difficulty: "medium", title: "Grid Path Counting (DP)", fn: "count_paths",
-    code: `def count_paths(grid):\n    \"\"\"Count right/down paths from top-left to bottom-right around blocked cells.\"\"\"\n    if not grid or not grid[0]:\n        return 0\n\n    rows = len(grid)\n    cols = len(grid[0])\n\n    def dfs(row, col):\n        if row >= rows or col >= cols:\n            return 0\n        if grid[row][col] == 1:\n            return 0\n        if row == rows - 1 and col == cols - 1:\n            return 1\n        return dfs(row + 1, col) + dfs(row, col + 1)\n\n    return dfs(0, 0)`
+    gradeTarget: "Level 2/4 - Correctness + Speed",
+    focus: "Focus: keep correctness while removing exponential recursion.",
+    edgeCases: [
+      "blocked start or destination",
+      "empty grid / single-cell grid",
+      "larger grid needs memoization",
+    ],
+    code: `def count_paths(grid):\n    \"\"\"Count right/down paths using memoization for O(rows*cols) complexity.\"\"\"\n    if not grid or not grid[0]:\n        return 0\n\n    rows = len(grid)\n    cols = len(grid[0])\n    if grid[0][0] == 1 or grid[rows - 1][cols - 1] == 1:\n        return 0\n\n    memo = {}\n\n    def dfs(row, col):\n        if row >= rows or col >= cols:\n            return 0\n        if grid[row][col] == 1:\n            return 0\n        if row == rows - 1 and col == cols - 1:\n            return 1\n\n        key = (row, col)\n        if key in memo:\n            return memo[key]\n\n        memo[key] = dfs(row + 1, col) + dfs(row, col + 1)\n        return memo[key]\n\n    return dfs(0, 0)`
   },
   {
     id: 2, difficulty: "hard", title: "RAG Document Chunker", fn: "chunk_document",
-    code: `def chunk_document(text, max_chars):\n    chunks = []\n    current_chunk = ""\n    for char in text:\n        current_chunk += char\n        if len(current_chunk) >= max_chars:\n            chunks.append(current_chunk)\n            current_chunk = ""\n    if current_chunk:\n        chunks.append(current_chunk)\n    return chunks`
+    gradeTarget: "Level 3/4 - Performance + Quality",
+    focus: "Focus: preserve word boundaries and handle whitespace and long words.",
+    edgeCases: [
+      "max_chars <= 0",
+      "whitespace-only documents",
+      "single token longer than chunk size",
+    ],
+    code: `def chunk_document(text: str, max_chars: int) -> list[str]:\n    \"\"\"Split text into chunks up to max_chars, preserving full words.\"\"\"\n    if max_chars <= 0:\n        return []\n\n    words = text.split()\n    if not words:\n        return []\n\n    chunks: list[str] = []\n    current_words: list[str] = []\n    current_len = 0\n\n    for word in words:\n        word_len = len(word)\n        if word_len > max_chars:\n            if current_words:\n                chunks.append(" ".join(current_words))\n                current_words = []\n                current_len = 0\n            chunks.append(word)\n            continue\n\n        proposed_len = word_len if not current_words else current_len + 1 + word_len\n        if proposed_len <= max_chars:\n            current_words.append(word)\n            current_len = proposed_len\n        else:\n            chunks.append(" ".join(current_words))\n            current_words = [word]\n            current_len = word_len\n\n    if current_words:\n        chunks.append(" ".join(current_words))\n    return chunks`
   },
   {
     id: 3, difficulty: "extra-hard", title: "Sliding Window Rate Limiter", fn: "is_allowed",
-    code: `def is_allowed(user_id, current_time, request_log, max_requests, window_seconds):\n    \"\"\"Return True if the user is within their rate limit.\"\"\"\n    count = 0\n    for entry in request_log:\n        if entry["user_id"] == user_id:\n            if current_time - entry["timestamp"] <= window_seconds:\n                count += 1\n    return count < max_requests`
+    gradeTarget: "Level 4/4 - Production-Ready",
+    focus: "Focus: strict window boundary, malformed logs, and robust typing.",
+    edgeCases: [
+      "boundary timestamps (strict window)",
+      "missing keys in request_log entries",
+      "max_requests set to zero",
+    ],
+    code: `def is_allowed(\n    user_id: str,\n    current_time: float,\n    request_log: list[dict],\n    max_requests: int,\n    window_seconds: float,\n) -> bool:\n    \"\"\"Return True if the user has fewer than max_requests in the sliding window.\"\"\"\n    if max_requests <= 0:\n        return False\n\n    window_start = current_time - window_seconds\n    count = sum(\n        1\n        for entry in request_log\n        if entry.get("user_id") == user_id and entry.get("timestamp", 0) > window_start\n    )\n    return count < max_requests`
   },
 ];
 
@@ -478,10 +563,19 @@ function buildTaskGrid() {
     el.innerHTML = `
       <span class="badge ${t.difficulty}">${t.difficulty.toUpperCase().replace("-", " ")}</span>
       <h3>${t.title}</h3>
-      <p>${t.fn}()</p>
+      <p class="fn">${t.fn}()</p>
+      <p class="grade-hint">${t.gradeTarget}</p>
     `;
     grid.appendChild(el);
   });
+}
+
+function renderTaskGuidance(task) {
+  document.getElementById("gradeTarget").textContent = task.gradeTarget;
+  document.getElementById("focusLabel").textContent = task.focus;
+  document.getElementById("edgeCases").innerHTML = task.edgeCases
+    .map(edge => `<span>${edge}</span>`)
+    .join("");
 }
 
 function selectTask(id) {
@@ -490,7 +584,8 @@ function selectTask(id) {
   document.getElementById(`pill-${id}`).classList.add("active");
   const task = TASKS[id];
   document.getElementById("editorLabel").textContent =
-    `Task ${id} â€” ${task.fn}()  |  ${task.difficulty.toUpperCase().replace("-", " ")}`;
+    `Task ${id} - ${task.fn}()  |  ${task.difficulty.toUpperCase().replace("-", " ")}`;
+  renderTaskGuidance(task);
   document.getElementById("codeBox").value = task.code;
 }
 
