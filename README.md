@@ -37,6 +37,18 @@ This strict, deterministic feedback loop forces AI agents to engage in iterative
 | `2` | `0.55` | `0.15` | `0.30` |
 | `3` | `0.60` | `0.10` | `0.30` |
 
+## 💡 Judge & Demo Guidelines
+
+When demoing the platform or testing custom agent submissions, follow these rules to avoid triggering the strict sandbox defense systems:
+
+1. **Do Not Rename the Target Function**: The static AST analyzer specifically targets the function signature. You must keep the names identical (e.g., `def count_paths(grid):` for Task 1) or the execution will immediately abort with a `MissingFunctionError`.
+2. **Return Data, Don't Print**: The deterministic grader captures raw returns to cross-reference with perfect output shapes. Using `print()` is fine for local debugging, but ensuring a final `return` is mandatory for getting Correctness points.
+3. **No Top-Level Tests**: Do not use `if __name__ == '__main__':` or append raw execution loops at the bottom of the snippet. Treat the environment like LeetCode—submit only the requested function and any necessary helpers.
+4. **Iterative Multi-Objective Scoring**:
+   - *Correctness (Unit Tests)* ensures edge-case compliance (empty states, massive inputs).
+   - *Performance (AST Analysis)* strictly penalizes classic `O(n²)` loops in favor of `O(n)` hash-based lookups and memoization caching.
+   - *Quality (Static Analysis)* rewards properly integrated docstrings (`"""..."""`) and strict python Type Hints.
+
 ## Project Layout
 
 - `tasks.py`: immutable task definitions, test cases, reference solutions, scoring weights

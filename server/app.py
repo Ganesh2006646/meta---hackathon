@@ -474,12 +474,17 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
       <div id="edgeCases" class="edge-list"></div>
     </div>
     <textarea id="codeBox" spellcheck="false" placeholder="# Sample code loads per task. Edit it, then run grader."></textarea>
-    <div class="run-bar">
-      <button class="run-btn" id="runBtn" onclick="runGrader()">
-        <div class="spinner"></div>
-        <span class="btn-text">▶ Run Grader</span>
-      </button>
-      <span class="hint">Runs in a deterministic sandbox &mdash; correctness + performance + quality</span>
+    <div class="run-bar" style="flex-direction: column; align-items: flex-start; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 12px; width: 100%;">
+        <button class="run-btn" id="runBtn" onclick="runGrader()">
+          <div class="spinner"></div>
+          <span class="btn-text">▶ Run Grader</span>
+        </button>
+        <span class="hint">Strict timeout &middot; Multi-Objective AST Analysis</span>
+      </div>
+      <span class="hint" style="color: #64748b; font-size: 0.72rem; max-width: 100%; border-top: 1px dashed var(--border); padding-top: 8px; margin-top: 2px;">
+        <b>💡 Judge Guidelines:</b> Write isolated functions only. Do <u>not</u> rename the generated function signature (e.g. <code>def count_paths(grid):</code>). You must <code>return</code> final answers rather than printing them. No top-level tests. 
+      </span>
     </div>
   </div>
 
