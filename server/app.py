@@ -126,18 +126,18 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Syne:wght@400;600;800&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --bg: #0a0e17;
-      --surface: #111827;
-      --surface2: #1a2235;
-      --border: #1e2d45;
-      --ink: #e2e8f0;
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --surface2: #f1f5f9;
+      --border: #e2e8f0;
+      --ink: #0f172a;
       --muted: #64748b;
-      --accent: #38bdf8;
-      --accent2: #818cf8;
-      --ok: #34d399;
-      --warn: #fbbf24;
-      --err: #f87171;
-      --code-bg: #0d1117;
+      --accent: #2563eb;
+      --accent2: #4f46e5;
+      --ok: #10b981;
+      --warn: #eab308;
+      --err: #ef4444;
+      --code-bg: #f8fafc;
       --radius: 12px;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -152,8 +152,8 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
       content: '';
       position: fixed; inset: 0;
       background:
-        radial-gradient(ellipse 900px 500px at 10% -10%, rgba(56,189,248,0.06) 0%, transparent 70%),
-        radial-gradient(ellipse 700px 400px at 90% 90%, rgba(129,140,248,0.05) 0%, transparent 70%);
+        radial-gradient(ellipse 900px 500px at 10% -10%, rgba(56,189,248,0.15) 0%, transparent 70%),
+        radial-gradient(ellipse 700px 400px at 90% 90%, rgba(129,140,248,0.15) 0%, transparent 70%);
       pointer-events: none;
     }
     .shell {
@@ -234,6 +234,7 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
     .badge.easy   { background: rgba(52,211,153,0.15); color: var(--ok); }
     .badge.medium { background: rgba(251,191,36,0.15);  color: var(--warn); }
     .badge.hard   { background: rgba(248,113,113,0.15); color: var(--err); }
+    .badge.extra-hard { background: rgba(139,92,246,0.15); color: #8b5cf6; }
     .task-pill h3 { font-size: 0.85rem; font-weight: 600; line-height: 1.3; }
     .task-pill p  { font-size: 0.75rem; color: var(--muted); margin-top: 4px; font-family: 'JetBrains Mono', monospace; }
 
@@ -258,7 +259,7 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
       width: 100%;
       min-height: 260px;
       background: var(--code-bg);
-      color: #c9d1d9;
+      color: var(--ink);
       border: none;
       outline: none;
       padding: 16px 20px;
@@ -446,10 +447,22 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
 
 <script>
 const TASKS = [
-  { id: 0, difficulty: "easy",   title: "Mutable Default Argument",    fn: "append_to_history" },
-  { id: 1, difficulty: "medium", title: "Grid Path Counting (DP)",      fn: "count_paths" },
-  { id: 2, difficulty: "hard",   title: "RAG Document Chunker",         fn: "chunk_document" },
-  { id: 3, difficulty: "hard",   title: "Sliding Window Rate Limiter",  fn: "is_allowed" },
+  {
+    id: 0, difficulty: "easy", title: "Mutable Default Argument", fn: "append_to_history",
+    code: `def append_to_history(item, history=[]):\n    \"\"\"Append an item and return the history list.\"\"\"\n    history.append(item)\n    return history`
+  },
+  {
+    id: 1, difficulty: "medium", title: "Grid Path Counting (DP)", fn: "count_paths",
+    code: `def count_paths(grid):\n    \"\"\"Count right/down paths from top-left to bottom-right around blocked cells.\"\"\"\n    if not grid or not grid[0]:\n        return 0\n\n    rows = len(grid)\n    cols = len(grid[0])\n\n    def dfs(row, col):\n        if row >= rows or col >= cols:\n            return 0\n        if grid[row][col] == 1:\n            return 0\n        if row == rows - 1 and col == cols - 1:\n            return 1\n        return dfs(row + 1, col) + dfs(row, col + 1)\n\n    return dfs(0, 0)`
+  },
+  {
+    id: 2, difficulty: "hard", title: "RAG Document Chunker", fn: "chunk_document",
+    code: `def chunk_document(text, max_chars):\n    chunks = []\n    current_chunk = ""\n    for char in text:\n        current_chunk += char\n        if len(current_chunk) >= max_chars:\n            chunks.append(current_chunk)\n            current_chunk = ""\n    if current_chunk:\n        chunks.append(current_chunk)\n    return chunks`
+  },
+  {
+    id: 3, difficulty: "extra-hard", title: "Sliding Window Rate Limiter", fn: "is_allowed",
+    code: `def is_allowed(user_id, current_time, request_log, max_requests, window_seconds):\n    \"\"\"Return True if the user is within their rate limit.\"\"\"\n    count = 0\n    for entry in request_log:\n        if entry["user_id"] == user_id:\n            if current_time - entry["timestamp"] <= window_seconds:\n                count += 1\n    return count < max_requests`
+  },
 ];
 
 let selectedTask = 0;
@@ -463,7 +476,7 @@ function buildTaskGrid() {
     el.id = `pill-${t.id}`;
     el.onclick = () => selectTask(t.id);
     el.innerHTML = `
-      <span class="badge ${t.difficulty}">${t.difficulty.toUpperCase()}</span>
+      <span class="badge ${t.difficulty}">${t.difficulty.toUpperCase().replace("-", " ")}</span>
       <h3>${t.title}</h3>
       <p>${t.fn}()</p>
     `;
@@ -475,8 +488,10 @@ function selectTask(id) {
   selectedTask = id;
   document.querySelectorAll(".task-pill").forEach(p => p.classList.remove("active"));
   document.getElementById(`pill-${id}`).classList.add("active");
+  const task = TASKS[id];
   document.getElementById("editorLabel").textContent =
-    `Task ${id} — ${TASKS[id].fn}()  |  ${TASKS[id].difficulty}`;
+    `Task ${id} â€” ${task.fn}()  |  ${task.difficulty.toUpperCase().replace("-", " ")}`;
+  document.getElementById("codeBox").value = task.code;
 }
 
 async function runGrader() {

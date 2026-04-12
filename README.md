@@ -9,261 +9,167 @@ app_port: 8000
 
 # ExecuCode
 
-Execution-aware OpenEnv environment for evaluating coding agents on correctness, performance, and code quality with deterministic grading.
+ExecuCode is an execution-aware OpenEnv environment for evaluating coding agents on more than final correctness. Each submission is graded on deterministic tests, performance signals, and code quality so agents can improve over multiple attempts instead of optimizing for a single pass/fail outcome.
 
-## 1. Problem Statement
+## What It Does
 
-Most coding benchmarks reward only final correctness. Real engineering work also needs:
+ExecuCode runs an iterative optimization loop:
 
-- Robust behavior across edge cases
-- Efficient algorithms
-- Readable, maintainable code
+1. An agent receives a buggy Python function and task description.
+2. The agent submits a full replacement implementation.
+3. The environment executes deterministic checks and static heuristics.
+4. The agent receives structured feedback, component scores, and a shaped reward.
 
-ExecuCode addresses this by evaluating AI-generated code in an iterative environment with explicit multi-objective feedback.
+The reward is always clamped to the strict open interval `(0.001, 0.999)` for validator compatibility.
 
-## 2. Solution Description
+## Task Suite
 
-ExecuCode runs a conversational optimization loop:
-
-1. Agent receives a buggy coding task.
-2. Agent submits a full function implementation.
-3. Environment executes deterministic tests and static checks.
-4. Agent receives structured feedback and reward for the next attempt.
-
-This mirrors how real developers iterate: fix bugs first, then optimize, then polish quality.
-
-## 3. System Architecture
-
-### High-level flow
-
-```text
-Agent -> /reset -> Task Prompt
-Agent -> /step  -> Grader(correctness + performance + quality) -> feedback + reward
-Repeat until solved or max attempts
-```
-
-### Components
-
-- `tasks.py`: immutable task definitions (buggy code, reference solution, deterministic tests, weights).
-- `grader.py`: correctness execution + static performance/quality scoring.
-- `utils.py`: safe code extraction, restricted execution, feedback formatting.
-- `server/environment.py`: OpenEnv environment (`reset`, `step`, state tracking).
-- `server/app.py`: FastAPI app, judge dashboard UI, compatibility endpoints.
-
-## 4. Environment Design (OpenEnv)
-
-### Action / Observation / State
-
-- `ExecuCodeAction.message`: agent submission text (contains full Python function).
-- `ExecuCodeObservation.echoed_message`: task prompt or grader feedback.
-- `ExecuCodeObservation.reward`: normalized reward in strict open interval `(0, 1)`.
-- `ExecuCodeState`: `task_id`, `current_code`, `best_reward`, `attempts`, `step_count`, `max_attempts`.
-
-### `reset(...)`
-
-- Selects task deterministically (round-robin unless task/seed provided)
-- Resets attempts and best reward
-- Returns full task prompt with buggy starter code
-
-### `step(...)`
-
-- Extracts code from agent message
-- Grades submission
-- Updates state
-- Returns feedback, reward, done flag, and scoring metadata
-
-Termination:
-
-- `done=True` when reward `>= 0.95` or max attempts reached.
-
-## 5. Task Design
-
-| Task | Difficulty | Core skill tested | Real-world relevance |
+| ID | Task | Difficulty | Focus |
 |---|---|---|---|
-| `append_to_history(item, history=[])` | Easy | Python language gotcha (mutable default argument) | Common production bug source |
-| `count_paths(grid)` | Medium | Dynamic programming + memoization | Performance-critical recursion optimization |
-| `chunk_document(text, max_chars)` | Hard | Robust text chunking for RAG pipelines | Practical LLM retrieval infra |
+| `0` | Mutable default argument | Easy | Python correctness |
+| `1` | Grid path counting | Medium | Dynamic programming and memoization |
+| `2` | RAG document chunker | Hard | Text processing, edge cases, readability |
+| `3` | Sliding window rate limiter | Hard | API infra logic, edge cases, code quality |
 
-Difficulty progression:
+### Reward weights
 
-- Easy: language correctness
-- Medium: algorithmic optimization
-- Hard: AI-infrastructure utility with edge-case handling and quality constraints
+| Task ID | Correctness | Performance | Quality |
+|---|---:|---:|---:|
+| `0` | `1.00` | `0.00` | `0.00` |
+| `1` | `0.75` | `0.25` | `0.00` |
+| `2` | `0.55` | `0.15` | `0.30` |
+| `3` | `0.60` | `0.10` | `0.30` |
 
-## 6. Grading System
+## Project Layout
 
-Metrics:
+- `tasks.py`: immutable task definitions, test cases, reference solutions, scoring weights
+- `grader.py`: deterministic grading pipeline and score aggregation
+- `utils.py`: code extraction, restricted execution, feedback formatting
+- `server/environment.py`: `ExecuCodeEnvironment` implementation used by OpenEnv
+- `environment.py`: package-root shim for OpenEnv validator discovery
+- `server/app.py`: FastAPI app, dashboard UI, and task/grader endpoints
+- `test_openenv.py`: scriptable validation checks for environment behavior
+- `test_hackathon_endpoints.py`: endpoint regression coverage
+- `openenv.yaml`: environment metadata and endpoint contract
 
-- Correctness: deterministic unit tests over fixed inputs/outputs
-- Performance: AST/regex signals (nested structure, cache usage, anti-patterns)
-- Quality: docstrings, naming, complexity/readability heuristics
+## API Surface
 
-Deterministic behavior:
+Core endpoints:
 
-- No random scoring
-- No nondeterministic model judgments
-- Same input submission always produces the same score and feedback
+- `GET /`: interactive dashboard for trying tasks manually
+- `GET /tasks`: task catalog, metadata, and grader wiring
+- `GET /health`: liveness endpoint, currently returns `{"status": "healthy"}`
+- `POST /grader`: grades one submission and returns score, breakdown, feedback, and test details
+- `POST /baseline`: grades the bundled reference solutions deterministically
 
-## 7. Reward Function
+OpenEnv routes are also exposed through the app integration:
 
-All component scores are clamped to `(0.001, 0.999)` for validator compatibility.
+- `POST /reset`
+- `POST /step`
+- `GET /state`
 
-Per-task weights:
+## Local Development
 
-- Task 0: `1.0 * correctness + 0.0 * performance + 0.0 * quality`
-- Task 1: `0.75 * correctness + 0.25 * performance + 0.0 * quality`
-- Task 2: `0.55 * correctness + 0.15 * performance + 0.30 * quality`
+From the repository root:
 
-Final reward:
-
-```text
-reward = clamp(correctness * c_weight + performance * p_weight + quality * q_weight)
+```powershell
+uv sync --extra test
 ```
 
-## 8. API / Endpoints
+Run the built-in validation script:
 
-Judge-facing and validator endpoints:
-
-- `GET /` -> interactive dashboard
-- `GET /tasks` -> task catalog and grader wiring
-- `POST /grader` -> grades one submission with score, breakdown, feedback
-- `POST /baseline` -> deterministic reference baseline
-- `GET /docs` -> Swagger UI
-
-OpenEnv endpoints are exposed by `openenv` app integration in `server/app.py`:
-
-- Standard environment routes include reset/step style operations for agents.
-
-## 9. Demo / UI
-
-The homepage (`/`) is a live interactive dashboard where judges can:
-
-1. Select a task (easy/medium/hard)
-2. Paste Python code
-3. Click **Run Grader**
-4. View multi-objective feedback instantly
-
-Suggested judge demo:
-
-1. Pick Task 1 and submit naive recursion without memoization.
-2. Observe reduced performance score and optimization guidance.
-3. Add memoization and rerun to see improved reward.
-
-### Screenshot slots
-
-Add these files before final submission:
-
-- `docs/screenshots/dashboard-home.png`
-- `docs/screenshots/grader-feedback.png`
-
-Example markdown to render screenshots:
-
-```markdown
-![Dashboard Home](docs/screenshots/dashboard-home.png)
-![Live Grader Feedback](docs/screenshots/grader-feedback.png)
+```powershell
+uv run python test_openenv.py
 ```
 
-## 10. Example Interaction
+Run the endpoint regression suite:
 
-Sample request to `/grader`:
+```powershell
+uv run pytest -q
+```
+
+Start the local server:
+
+```powershell
+uv run uvicorn execucode.server.app:app --host 127.0.0.1 --port 8000
+```
+
+Then open `http://127.0.0.1:8000`.
+
+## Example Grader Request
 
 ```json
 {
   "task_id": 0,
-  "code": "def append_to_history(item, history=[]):\n    history.append(item)\n    return history"
+  "code": "def append_to_history(item, history=None):\n    if history is None:\n        history = []\n    history.append(item)\n    return history"
 }
 ```
 
-Sample response (abridged):
+Typical response shape:
 
 ```json
 {
-  "score": 0.5,
+  "task_id": 0,
+  "score": 0.999,
   "breakdown": {
-    "correctness": 0.5,
+    "correctness": 0.999,
     "performance": 0.999,
     "quality": 0.999
   },
-  "feedback": "### Evaluation (Attempt 1/1)\n..."
+  "feedback": "### Evaluation (Attempt 1/10)\n...",
+  "test_details": []
 }
 ```
 
-## 11. Local Setup
+## Docker
+
+The included Dockerfile uses `python:3.12-slim`, installs `uv`, and installs the project with:
 
 ```powershell
-cd "D:\meta hackathon"
-python -m pip install -e .\execucode
-python .\execucode\test_openenv.py
+uv pip install --system --no-cache .
 ```
 
-Run server:
+Build and run locally:
 
 ```powershell
-cd "D:\meta hackathon"
-uvicorn execucode.server.app:app --host 0.0.0.0 --port 8000
+docker build -t execucode .
+docker run --rm -p 8000:8000 execucode
 ```
 
-## 12. Deployment
+## Hugging Face Space
 
-Docker build:
+This repo is configured for Docker-based Space deployment. The current Space metadata lives in the frontmatter above, and `openenv.yaml` points the runtime at:
+
+```text
+execucode.server.app:app
+```
+
+## Inference Loop
+
+The repo also includes a client/inference path for running agent episodes against the environment:
 
 ```powershell
-docker build -f .\execucode\Dockerfile .\execucode
+python inference.py
 ```
 
-The container runs Uvicorn on port `8000`.
+Useful environment variables:
 
-Hugging Face Space example:
+- `HF_TOKEN`
+- `API_BASE_URL`
+- `MODEL_NAME`
+- `EPISODE_TIMEOUT_SECONDS`
 
-- `https://ganeshkankatala4-execucode-env.hf.space`
+## Validation Notes
 
-## 13. Inference Loop
+- Grading is deterministic for the same submission and task.
+- The environment cycles through all configured tasks on repeated `reset()` calls.
+- Runtime metadata includes score breakdowns plus execution profile fields such as elapsed time and captured errors when available.
+- The package-root `environment.py` shim is intentionally present so OpenEnv validation can discover `ExecuCodeEnvironment` correctly.
 
-Run:
+## Stack
 
-```powershell
-python .\execucode\inference.py
-```
-
-Environment variables:
-
-- `HF_TOKEN` (required)
-- `API_BASE_URL` (optional, default OpenAI-compatible endpoint)
-- `MODEL_NAME` (optional)
-- `EPISODE_TIMEOUT_SECONDS` (optional)
-
-Logging format:
-
-- `[START]` task metadata
-- `[STEP]` per-attempt reward + done flag
-- `[END]` episode summary and rewards
-
-## 14. Evaluation and Reproducibility
-
-- Deterministic test cases and static checks
-- Stable scoring across runs
-- Reference solutions provide reproducible baseline scores via `/baseline`
-
-## 15. Key Features / Highlights
-
-- Execution-aware grading loop, not single-shot scoring
-- Multi-objective reward (correctness, performance, quality)
-- Realistic difficulty progression
-- Built-in web dashboard for judge-friendly live demo
-
-## 16. Limitations
-
-- Sandbox is lightweight and not a hardened security boundary
-- Performance scoring uses static signals, not full runtime profiling
-- Task set is intentionally compact for hackathon constraints
-
-## 17. Future Work
-
-- Add larger task library and category tags
-- Add leaderboard and run history UI
-- Add richer static analysis and optional bounded runtime profiling
-
-## 18. Author / Credits
-
-- Author: `Ganeshkankatala4`
-- Built for OpenEnv + FastAPI + Hugging Face Space hackathon workflow
+- FastAPI
+- OpenEnv
+- Pydantic
+- Uvicorn
+- Python 3.12
