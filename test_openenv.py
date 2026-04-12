@@ -67,7 +67,8 @@ def test_grading_does_not_mutate_task_test_inputs() -> None:
 def test_reset_cycles_tasks() -> None:
     env = ExecuCodeEnvironment()
     observed = [env.reset().metadata["task_id"] for _ in range(5)]
-    assert observed == [0, 1, 2, 0, 1]
+    expected = list(range(len(ALL_TASKS))) + [0]
+    assert observed == expected[:5]
 
 
 def test_state_updates() -> None:

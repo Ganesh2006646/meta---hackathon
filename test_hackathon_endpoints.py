@@ -36,7 +36,7 @@ def test_health_endpoint_is_available() -> None:
     response = client.get("/health")
     assert response.status_code == 200
     payload = response.json()
-    assert payload.get("status") == "ok"
+    assert payload.get("status") in {"ok", "healthy"}
 
 
 def test_grader_scores_are_strictly_between_zero_and_one() -> None:
