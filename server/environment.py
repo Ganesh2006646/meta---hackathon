@@ -1,9 +1,191 @@
-"""Root-level environment.py — required by openenv validate.
+"""OpenEnv-compatible ExecuCode environment implementation."""
 
-Re-exports ExecuCodeEnvironment from its implementation module so that the
-openenv validator can discover it at the package root as required by the spec.
-"""
+from __future__ import annotations
 
-from execucode.server.environment import ExecuCodeEnvironment  # noqa: F401
+from uuid import uuid4
 
-__all__ = ["ExecuCodeEnvironment"]
+try:
+    from openenv.core.env_server.interfaces import Environment
+except ModuleNotFoundError:
+    try:
+        # Compatibility path used in some older OpenEnv examples.
+        from openenv.core.env_server.environment import Environment
+    except ModuleNotFoundError:
+        class Environment:
+            """Minimal fallback used for local tests without openenv-core."""
+
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                pass
+
+            def _apply_transform(self, observation: object) -> object:
+                return observation
+
+            def _reset_rubric(self) -> None:
+                return
+
+try:
+    from ..grader import grade_submission
+    from ..models import ExecuCodeAction, ExecuCodeObservation, ExecuCodeState
+    from ..tasks import ALL_TASKS, Task, get_task
+    from ..utils import extract_code, generate_feedback
+except ImportError:
+    from grader import grade_submission
+    from models import ExecuCodeAction, ExecuCodeObservation, ExecuCodeState
+    from tasks import ALL_TASKS, Task, get_task
+    from utils import extract_code, generate_feedback
+
+
+_SCORE_EPSILON = 1e-3
+
+
+def _clamp_open_interval(score: float) -> float:
+    """Clamp scores into the strict open interval (0, 1)."""
+
+    return max(_SCORE_EPSILON, min(1.0 - _SCORE_EPSILON, float(score)))
+
+
+class ExecuCodeEnvironment(Environment):
+    """Conversational code optimization environment."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._state = ExecuCodeState()
+        self._task: Task = get_task(0)
+        self._next_task_id = 0
+
+    @property
+    def state(self) -> ExecuCodeState:
+        return self._state
+
+    def reset(
+        self,
+        seed: int | None = None,
+        episode_id: str | None = None,
+        task_id: int | None = None,
+        **_: object,
+    ) -> ExecuCodeObservation:
+        """Start a new episode and return the task prompt."""
+        self._reset_rubric()
+
+        if task_id is None:
+            if seed is not None:
+                selected_task_id = seed % len(ALL_TASKS)
+            else:
+                selected_task_id = self._next_task_id % len(ALL_TASKS)
+                self._next_task_id += 1
+        else:
+            selected_task_id = task_id % len(ALL_TASKS)
+
+        self._task = get_task(selected_task_id)
+        self._state = ExecuCodeState(
+            episode_id=episode_id or str(uuid4()),
+            step_count=0,
+            task_id=self._task.task_id,
+            current_code=self._task.buggy_code,
+            best_reward=0.0,
+            attempts=0,
+            max_attempts=10,
+        )
+
+        prompt = (
+            f"Task {self._task.task_id}: {self._task.title}\n"
+            f"Difficulty: {self._task.difficulty}\n\n"
+            f"{self._task.description}\n\n"
+            "Submit a complete Python function definition in your next message."
+        )
+        observation = ExecuCodeObservation(
+            echoed_message=prompt,
+            done=False,
+            reward=_clamp_open_interval(0.0),
+            metadata={
+                "task_id": self._task.task_id,
+                "difficulty": self._task.difficulty,
+                "function_name": self._task.function_name,
+                "attempts": 0,
+            },
+        )
+        return self._apply_transform(observation)
+
+    def step(
+        self,
+        action: ExecuCodeAction,
+        timeout_s: float | None = None,
+        **_: object,
+    ) -> ExecuCodeObservation:
+        """Evaluate an agent submission and return deterministic feedback."""
+
+        code = extract_code(action.message)
+        result = grade_submission(code, self._task)
+        reward = _clamp_open_interval(result.reward)
+        correctness = _clamp_open_interval(result.correctness)
+        performance = _clamp_open_interval(result.performance)
+        quality = _clamp_open_interval(result.quality)
+
+        next_attempt = self._state.attempts + 1
+        next_step = self._state.step_count + 1
+        done = reward >= 0.95 or next_attempt >= self._state.max_attempts
+        best_reward = max(self._state.best_reward, reward)
+
+        elapsed_values = [
+            float(detail["elapsed_ms"])
+            for detail in result.test_details
+            if isinstance(detail.get("elapsed_ms"), (int, float))
+        ]
+        memory_values = [
+            int(detail["memory_kb"])
+            for detail in result.test_details
+            if isinstance(detail.get("memory_kb"), (int, float))
+        ]
+        first_error = next(
+            (
+                detail.get("error")
+                for detail in result.test_details
+                if not detail.get("passed") and detail.get("error")
+            ),
+            None,
+        )
+
+        self._state = self._state.model_copy(
+            update={
+                "current_code": code,
+                "best_reward": best_reward,
+                "attempts": next_attempt,
+                "step_count": next_step,
+            }
+        )
+
+        feedback = generate_feedback(
+            correctness_score=correctness,
+            performance_score=performance,
+            quality_score=quality,
+            total_reward=reward,
+            test_details=result.test_details,
+            performance_notes=result.performance_notes,
+            quality_notes=result.quality_notes,
+            is_done=done,
+            step_count=next_step,
+            max_attempts=self._state.max_attempts,
+        )
+
+        observation = ExecuCodeObservation(
+            echoed_message=feedback,
+            done=done,
+            reward=reward,
+            metadata={
+                "task_id": self._task.task_id,
+                "difficulty": self._task.difficulty,
+                "function_name": self._task.function_name,
+                "attempts": next_attempt,
+                "best_reward": best_reward,
+                "correctness": correctness,
+                "performance": performance,
+                "quality": quality,
+                "avg_elapsed_ms": round(sum(elapsed_values) / len(elapsed_values), 3)
+                if elapsed_values
+                else None,
+                "max_elapsed_ms": round(max(elapsed_values), 3) if elapsed_values else None,
+                "max_memory_kb": max(memory_values) if memory_values else None,
+                "last_action_error": first_error,
+            },
+        )
+        return self._apply_transform(observation)
