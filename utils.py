@@ -623,7 +623,7 @@ def generate_feedback(
     """Generates a well-organized, readable feedback string for the agent."""
 
     solved = bool(is_done and total_reward >= 0.95)
-    status_icon = "Solved" if solved else "Needs Improvement"
+    status_icon = "✅ Solved" if solved else "⚠️ Needs Improvement"
 
     if isinstance(test_details, list):
         total_tests = len(test_details)
@@ -634,17 +634,23 @@ def generate_feedback(
     else:
         test_details_text = test_details.strip()
 
+    # FIX: Format each note on its own bullet line instead of joining into one
+    # squashed line. This makes feedback legible for both humans and agents.
     if isinstance(performance_notes, list):
         perf_notes = [note.strip() for note in performance_notes if note and note.strip()]
-        performance_notes_text = f"- {' '.join(perf_notes)}" if perf_notes else ""
+        performance_notes_text = (
+            "\n  " + "\n  ".join(f"• {n}" for n in perf_notes) if perf_notes else ""
+        )
     else:
-        performance_notes_text = performance_notes.strip()
+        performance_notes_text = f"\n  {performance_notes.strip()}" if performance_notes.strip() else ""
 
     if isinstance(quality_notes, list):
         qual_notes = [note.strip() for note in quality_notes if note and note.strip()]
-        quality_notes_text = f"- {' '.join(qual_notes)}" if qual_notes else ""
+        quality_notes_text = (
+            "\n  " + "\n  ".join(f"• {n}" for n in qual_notes) if qual_notes else ""
+        )
     else:
-        quality_notes_text = quality_notes.strip()
+        quality_notes_text = f"\n  {quality_notes.strip()}" if quality_notes.strip() else ""
 
     feedback_lines = [
         f"### Evaluation (Attempt {step_count}/{max_attempts})",
@@ -652,26 +658,34 @@ def generate_feedback(
         "",
         "#### Score Breakdown",
         f"* **Correctness:** {correctness_score:.3f} {test_details_text or ''}".strip(),
-        f"* **Performance:** {performance_score:.3f} {performance_notes_text or ''}".strip(),
-        f"* **Quality:** {quality_score:.3f} {quality_notes_text or ''}".strip(),
+        f"* **Performance:** {performance_score:.3f}{performance_notes_text}".rstrip(),
+        f"* **Quality:** {quality_score:.3f}{quality_notes_text}".rstrip(),
         "",
         "#### Suggested Next Actions",
     ]
 
     if solved:
-        feedback_lines.append("* Excellent work! The task is fully optimized and solved.")
+        feedback_lines.append("* 🎉 Excellent work! The task is fully optimized and solved.")
     else:
         if correctness_score < 0.95:
+            failing = [
+                f"  - Test {d['index']}: input={d['input']}, expected={d['expected']}, got={d['actual']}"
+                for d in (test_details if isinstance(test_details, list) else [])
+                if not d.get("passed") and d.get("error") is None
+            ][:3]  # show up to 3 failing cases
             feedback_lines.append(
                 "* Fix failing correctness tests first to ensure the logic works."
             )
-        elif performance_score < 0.95:
+            feedback_lines.extend(failing)
+        elif performance_score < 0.80:
             feedback_lines.append(
-                "* Code logic is correct, but needs performance optimization (check for O(n^2) loops)."
+                "* Code logic is correct. Optimize performance: eliminate O(n²) loops, "
+                "use memoization or hash-based data structures."
             )
-        elif quality_score < 0.95:
+        elif quality_score < 0.80:
             feedback_lines.append(
-                "* Improve code readability (e.g., add docstrings or more descriptive variable names)."
+                "* Improve code quality: add a docstring, use descriptive variable names, "
+                "and add type hints."
             )
         else:
             feedback_lines.append(

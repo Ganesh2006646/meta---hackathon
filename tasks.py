@@ -189,8 +189,12 @@ TASK_1 = Task(
         r"if\s+\w+\s+in\s+memo",
         r"memo\[\w+\]\s*=",
     ),
+    # FIX: The original anti-pattern `return dfs(...) + dfs(...)` incorrectly
+    # fired on valid @lru_cache solutions which also use that return form.
+    # The real anti-pattern is a bare DFS with NO memoization at all:
+    # a top-level return with two dfs calls AND no memo/cache dict anywhere.
     anti_patterns=(
-        r"return\s+dfs\(\s*row\s*\+\s*1\s*,\s*col\s*\)\s*\+\s*dfs\(\s*row\s*,\s*col\s*\+\s*1\s*\)",
+        r"(?s)(?!.*\bmemo\b)(?!.*\bcache\b)(?!.*@lru_cache).*return\s+dfs\s*\(\s*row\s*\+\s*1",
     ),
     reference_solution=_TASK_1_REFERENCE,
     scoring_weights=(0.75, 0.25, 0.0),
@@ -308,7 +312,169 @@ TASK_2 = Task(
 )
 
 
-ALL_TASKS: tuple[Task, ...] = (TASK_0, TASK_1, TASK_2)
+# ─── TASK 3 (Bonus Hard Task) ────────────────────────────────────────────────
+# Real-world relevance: rate limiting is critical in every API / LLM service.
+# Tests: correctness is primary; code quality matters (clean class design).
+
+_TASK_3_BUGGY = '''\
+def is_allowed(user_id, current_time, request_log, max_requests, window_seconds):
+    """Return True if the user is within their rate limit."""
+    count = 0
+    for entry in request_log:
+        if entry["user_id"] == user_id:
+            if current_time - entry["timestamp"] <= window_seconds:
+                count += 1
+    return count < max_requests
+'''
+
+_TASK_3_REFERENCE = '''\
+def is_allowed(
+    user_id: str,
+    current_time: float,
+    request_log: list[dict],
+    max_requests: int,
+    window_seconds: float,
+) -> bool:
+    """Return True if the user has fewer than max_requests in the sliding window.
+
+    Uses a generator expression with early exit via sum() to avoid building an
+    intermediate list and short-circuits as soon as the limit is reached.
+    """
+    if max_requests <= 0:
+        return False
+
+    window_start = current_time - window_seconds
+    count = sum(
+        1
+        for entry in request_log
+        if entry.get("user_id") == user_id and entry.get("timestamp", 0) > window_start
+    )
+    return count < max_requests
+'''
+
+TASK_3 = Task(
+    task_id=3,
+    difficulty="hard",
+    title="API Infrastructure: Sliding Window Rate Limiter",
+    description=(
+        "The function `is_allowed(user_id, current_time, request_log, "
+        "max_requests, window_seconds)` implements a sliding window rate "
+        "limiter used in APIs and LLM services.\n\n"
+        "Current bugs in the buggy version:\n"
+        "1. Uses `<=` instead of `<` for window boundary — allows one extra "
+        "request at the exact boundary tick.\n"
+        "2. Does not handle missing or malformed log entries.\n"
+        "3. Does not handle `max_requests <= 0` edge case.\n"
+        "4. Builds a counter with a plain `for` loop when a generator "
+        "expression with `sum()` is cleaner and avoids the intermediate "
+        "counter variable.\n\n"
+        "Fix all issues and improve code quality (type hints, docstring, "
+        "named variable for window start).\n\n"
+        "```python\n" + _TASK_3_BUGGY + "```"
+    ),
+    buggy_code=_TASK_3_BUGGY,
+    function_name="is_allowed",
+    test_cases=(
+        # Basic allow
+        TestCase(
+            input_args=(
+                "u1", 100.0,
+                [{"user_id": "u1", "timestamp": 95.0}],
+                5, 10.0,
+            ),
+            expected_output=True,
+        ),
+        # Exactly at limit — must be blocked
+        TestCase(
+            input_args=(
+                "u1", 100.0,
+                [
+                    {"user_id": "u1", "timestamp": 91.0},
+                    {"user_id": "u1", "timestamp": 93.0},
+                    {"user_id": "u1", "timestamp": 95.0},
+                    {"user_id": "u1", "timestamp": 97.0},
+                    {"user_id": "u1", "timestamp": 99.0},
+                ],
+                5, 10.0,
+            ),
+            expected_output=False,
+        ),
+        # Request exactly on the boundary should NOT count (strict <, not <=)
+        TestCase(
+            input_args=(
+                "u1", 100.0,
+                [{"user_id": "u1", "timestamp": 90.0}],
+                2, 10.0,
+            ),
+            expected_output=True,
+        ),
+        # Different user — should not count
+        TestCase(
+            input_args=(
+                "u1", 100.0,
+                [{"user_id": "u2", "timestamp": 95.0}],
+                1, 10.0,
+            ),
+            expected_output=True,
+        ),
+        # Empty log — always allowed
+        TestCase(
+            input_args=("u1", 100.0, [], 3, 10.0),
+            expected_output=True,
+        ),
+        # max_requests=0 edge case
+        TestCase(
+            input_args=("u1", 100.0, [], 0, 10.0),
+            expected_output=False,
+        ),
+        # Malformed entry missing timestamp key — should not crash
+        TestCase(
+            input_args=(
+                "u1", 100.0,
+                [{"user_id": "u1"}, {"user_id": "u1", "timestamp": 99.0}],
+                2, 10.0,
+            ),
+            expected_output=True,
+        ),
+        # Old requests outside window should not count
+        TestCase(
+            input_args=(
+                "u1", 200.0,
+                [
+                    {"user_id": "u1", "timestamp": 50.0},
+                    {"user_id": "u1", "timestamp": 195.0},
+                ],
+                2, 10.0,
+            ),
+            expected_output=True,
+        ),
+        # Large log with mixed users
+        TestCase(
+            input_args=(
+                "u1", 100.0,
+                [{"user_id": "u1", "timestamp": 90.0 + i} for i in range(10)]
+                + [{"user_id": "u2", "timestamp": 95.0}],
+                5, 10.0,
+            ),
+            expected_output=False,
+        ),
+    ),
+    optimal_patterns=(
+        r"\bsum\s*\(",
+        r"entry\.get\(",
+        r"window_start\s*=",
+        r"if\s+max_requests\s*<=\s*0",
+    ),
+    anti_patterns=(
+        r"count\s*=\s*0\b",
+        r"count\s*\+=\s*1",
+    ),
+    reference_solution=_TASK_3_REFERENCE,
+    scoring_weights=(0.60, 0.10, 0.30),
+)
+
+
+ALL_TASKS: tuple[Task, ...] = (TASK_0, TASK_1, TASK_2, TASK_3)
 
 
 def get_task(task_id: int) -> Task:

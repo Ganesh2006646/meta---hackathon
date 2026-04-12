@@ -1,7 +1,10 @@
 spec_version: 1
 name: execucode
 version: "1.0.0"
-description: Deterministic coding-task environment for iterative code improvement.
+description: >
+  Deterministic multi-objective coding environment.
+  Agents iteratively improve Python functions graded on
+  correctness, performance, and code quality.
 domain: software_engineering
 real_world_task: true
 type: space
@@ -10,17 +13,22 @@ app: execucode.server.app:app
 port: 8000
 tasks:
   - id: 0
-    name: Python Gotcha: Mutable Default Argument
+    name: "Python Gotcha: Mutable Default Argument"
     difficulty: easy
     max_steps: 10
     grader: POST /grader
   - id: 1
-    name: Dynamic Programming: Grid Path Counting
+    name: "Dynamic Programming: Grid Path Counting"
     difficulty: medium
     max_steps: 10
     grader: POST /grader
   - id: 2
-    name: AI Infra: RAG Document Chunker
+    name: "AI Infra: RAG Document Chunker"
+    difficulty: hard
+    max_steps: 10
+    grader: POST /grader
+  - id: 3
+    name: "API Infrastructure: Sliding Window Rate Limiter"
     difficulty: hard
     max_steps: 10
     grader: POST /grader
