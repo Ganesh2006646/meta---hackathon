@@ -69,6 +69,7 @@ TASK_0 = Task(
         TestCase(input_args=("delta",), expected_output=["delta"]),
         TestCase(input_args=("epsilon", []), expected_output=["epsilon"]),
         TestCase(input_args=("zeta",), expected_output=["zeta"]),
+        TestCase(input_args=("System Halt",), expected_output=["System Halt"]),
     ),
     optimal_patterns=(
         r"def\s+append_to_history\s*\([^)]*history\s*=\s*None",
@@ -339,10 +340,7 @@ TASK_2 = Task(
         r"\" \"\.join\(",
         r"if\s+current_words",
     ),
-    anti_patterns=(
-        r"for\s+\w+\s+in\s+text",
-        r"current_chunk\s*\+=",
-    ),
+    anti_patterns=(r"curr\s*\+\s*char",),
     reference_solution=_TASK_2_REFERENCE,
     scoring_weights=(0.55, 0.15, 0.30),
 )
