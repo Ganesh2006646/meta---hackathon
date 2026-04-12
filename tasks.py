@@ -32,8 +32,10 @@ class Task:
 
 
 _TASK_0_BUGGY = '''\
-def append_to_history(item, history=[]):
-    """Append an item and return the history list."""
+def append_to_history(item, history=None):
+    """Append an item and return a list without leaking default state."""
+    if history is None:
+        history = []
     history.append(item)
     return history
 '''
