@@ -180,9 +180,15 @@ def _apply_resource_limits(timeout: float, memory_limit_mb: int) -> None:
     if resource is None:
         return
 
+    setrlimit = getattr(resource, "setrlimit", None)
+    if not callable(setrlimit):
+        return
+
     cpu_budget = max(1, int(timeout) + 1)
+    rlimit_cpu = getattr(resource, "RLIMIT_CPU", None)
     try:
-        resource.setrlimit(resource.RLIMIT_CPU, (cpu_budget, cpu_budget + 1))
+        if rlimit_cpu is not None:
+            setrlimit(rlimit_cpu, (cpu_budget, cpu_budget + 1))
     except Exception:
         pass
 
@@ -195,7 +201,7 @@ def _apply_resource_limits(timeout: float, memory_limit_mb: int) -> None:
         if limit is None:
             continue
         try:
-            resource.setrlimit(limit, (memory_bytes, memory_bytes))
+            setrlimit(limit, (memory_bytes, memory_bytes))
         except Exception:
             continue
 

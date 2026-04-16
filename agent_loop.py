@@ -15,14 +15,11 @@ if __package__ in {None, ""}:
         sys.path.insert(0, str(package_parent))
 
 try:
-    from google import genai as modern_genai
+    from google import genai
+    from google.genai import types
 except ImportError:
-    modern_genai = None
-
-try:
-    import google.generativeai as legacy_genai
-except ImportError:
-    legacy_genai = None
+    genai = None
+    types = None
 
 from execucode.rl_env import ExecuCodeEnv
 
@@ -96,17 +93,11 @@ def _is_model_not_found_error(exc: Exception) -> bool:
 
 
 def _build_gemini_backend(api_key: str) -> tuple[str, Any]:
-    if modern_genai is not None:
-        client = modern_genai.Client(api_key=api_key)
+    if genai is not None:
+        client = genai.Client(api_key=api_key)
         return "modern", client
 
-    if legacy_genai is not None:
-        legacy_genai.configure(api_key=api_key)
-        return "legacy", legacy_genai
-
-    raise RuntimeError(
-        "No Gemini SDK installed. Install google-genai or google-generativeai."
-    )
+    raise RuntimeError("No Gemini SDK installed. Install google-genai.")
 
 
 def _extract_response_text(response: object) -> str:
@@ -147,20 +138,17 @@ def _strip_markdown_fence(code: str) -> str:
 
 
 def _generate_with_modern_sdk(client: Any, model_name: str, prompt_text: str) -> str:
+    config: Any
+    if types is not None:
+        config = types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION)
+    else:
+        config = {"system_instruction": SYSTEM_INSTRUCTION}
+
     response = client.models.generate_content(
         model=model_name,
         contents=prompt_text,
-        config={"system_instruction": SYSTEM_INSTRUCTION},
+        config=config,
     )
-    return _extract_response_text(response)
-
-
-def _generate_with_legacy_sdk(legacy_module: Any, model_name: str, prompt_text: str) -> str:
-    model = legacy_module.GenerativeModel(
-        model_name=model_name,
-        system_instruction=SYSTEM_INSTRUCTION,
-    )
-    response = model.generate_content(prompt_text)
     return _extract_response_text(response)
 
 
@@ -174,7 +162,7 @@ def generate_code_action(prompt_text: str, backend: str, backend_client: Any) ->
                 if backend == "modern":
                     raw_code = _generate_with_modern_sdk(backend_client, model_name, prompt_text)
                 else:
-                    raw_code = _generate_with_legacy_sdk(backend_client, model_name, prompt_text)
+                    raise RuntimeError(f"Unsupported Gemini backend: {backend}")
 
                 code = _strip_markdown_fence(raw_code)
                 if code.strip():
