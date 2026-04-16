@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import random
 
 if __package__ in {None, ""}:
     # Allow: `python execucode/test_openenv.py`
@@ -15,6 +16,7 @@ if __package__ in {None, ""}:
 
 from execucode.grader import grade_submission
 from execucode.models import ExecuCodeAction
+from execucode.rl_env import ExecuCodeEnv, ExecuCodeRLEnv
 from execucode.server.environment import ExecuCodeEnvironment
 from execucode.tasks import ALL_TASKS
 from execucode.utils import extract_code
@@ -101,6 +103,109 @@ def test_extract_code_handles_common_markdown_variants() -> None:
 
     missing_closing_fence = f"```py\n{task.reference_solution}\n"
     assert extract_code(missing_closing_fence).strip() == task.reference_solution.strip()
+
+
+def test_rl_wrapper_reset_and_step() -> None:
+    env = ExecuCodeRLEnv(max_attempts=3)
+    observation, info = env.reset(task_id=0)
+
+    assert observation["task_id"] == 0
+    assert observation["attempt"] == 0
+    assert info["function_name"] == "append_to_history"
+
+    observation, reward, terminated, truncated, details = env.step(
+        ALL_TASKS[0].reference_solution
+    )
+    _assert_reward_range(reward)
+    assert terminated is True
+    assert truncated is False
+    assert details["correctness"] >= 0.95
+    assert observation["done"] is True
+
+
+def test_rl_wrapper_truncates_when_attempt_limit_reached() -> None:
+    env = ExecuCodeRLEnv(max_attempts=1)
+    env.reset(task_id=0)
+
+    _, _, terminated, truncated, _ = env.step(
+        "def append_to_history(item, history=None):\n    return []"
+    )
+    assert terminated is False
+    assert truncated is True
+
+
+def test_humaneval_env_parses_multi_arg_and_sanitizes_fenced_code() -> None:
+    sample = {
+        "task_id": "HumanEval/mini",
+        "prompt": "Implement add(a, b).",
+        "entry_point": "add",
+        "canonical_solution": "def add(a, b):\n    return a + b",
+        "test": (
+            "def check(candidate):\n"
+            "    assert candidate(1, 2) == 3\n"
+            "    assert candidate(5, 7) == 12\n"
+        ),
+    }
+    env = ExecuCodeEnv(samples=[sample], seed=1)
+    observation, info = env.reset()
+    assert isinstance(observation, str)
+    assert info["entry_point"] == "add"
+
+    fenced_code = "```python\ndef add(a, b):\n    return a + b\n```"
+    _, reward, terminated, truncated, step_info = env.step(fenced_code)
+    _assert_reward_range(reward)
+    assert step_info["correctness"] >= 0.95
+    assert terminated is False
+    assert truncated is False
+
+
+def test_humaneval_env_reset_does_not_touch_global_random_state() -> None:
+    sample = {
+        "task_id": "HumanEval/random",
+        "prompt": "Return x.",
+        "entry_point": "identity",
+        "canonical_solution": "def identity(x):\n    return x",
+        "test": "def check(candidate):\n    assert candidate(7) == 7\n",
+    }
+
+    random.seed(2026)
+    _ = random.random()
+    expected_next = random.random()
+
+    random.seed(2026)
+    _ = random.random()
+    env = ExecuCodeEnv(samples=[sample], seed=5)
+    env.reset(seed=17)
+    actual_next = random.random()
+
+    assert actual_next == expected_next
+
+
+def test_humaneval_env_non_literal_asserts_fallback_to_reference() -> None:
+    sample = {
+        "task_id": "HumanEval/tolerance",
+        "prompt": "import math\n\ndef approx_sin(x: float) -> float:\n",
+        "entry_point": "approx_sin",
+        "canonical_solution": "    return math.sin(x)\n",
+        "test": (
+            "import math\n"
+            "def check(candidate):\n"
+            "    assert abs(candidate(0.0) - 0.0) < 1e-9\n"
+            "    assert abs(candidate(0.5) - math.sin(0.5)) < 1e-9\n"
+        ),
+    }
+
+    env = ExecuCodeEnv(samples=[sample], seed=3)
+    _, info = env.reset()
+    assert info["test_case_count"] >= 2
+
+    _, reward, terminated, truncated, step_info = env.step(
+        "def approx_sin(x: float) -> float:\n    import math\n    return math.sin(x)"
+    )
+    _assert_reward_range(reward)
+    assert step_info["correctness"] >= 0.95
+    assert terminated is False
+    assert truncated is False
 
 
 def main() -> None:

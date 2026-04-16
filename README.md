@@ -55,9 +55,63 @@ When demoing the platform or testing custom agent submissions, follow these rule
 - `grader.py`: deterministic grading pipeline, OpenEnv metrics, and AST analysis
 - `utils.py`: code extraction, restricted execution, feedback formatting, AI Mentor integrations
 - `server/environment.py`: `ExecuCodeEnvironment` implementation used by OpenEnv
+- `rl_env.py`: RL-style wrapper exposing `reset()` and `step()` for ML workflows
+- `agent_loop.py`: autonomous script that lets OpenAI/Gemini iterate in the RL loop
+- `trajectory_logger.py`: optional trajectory summary + ASCII reward chart utilities
 - `environment.py`: package-root shim for OpenEnv validator discovery
 - `server/app.py`: FastAPI app, interactive markdown dashboard UI, and task/grader endpoints
 - `pyproject.toml`: Dependency tracking and build definitions
+
+## RL Wrapper (Required)
+
+`ExecuCodeRLEnv` converts ExecuCode into a standard RL-style sandbox:
+
+```python
+from execucode.rl_env import ExecuCodeRLEnv
+
+env = ExecuCodeRLEnv(max_attempts=10)
+obs, info = env.reset(task_id=1)
+obs, reward, terminated, truncated, info = env.step("""
+def count_paths(grid):
+   # your improved function
+   ...
+""")
+```
+
+API shape:
+- `reset(...) -> (observation, info)`
+- `step(action) -> (observation, reward, terminated, truncated, info)`
+
+## Autonomous Loop (Recommended)
+
+Run an autonomous agent directly against the RL wrapper:
+
+```powershell
+python execucode/agent_loop.py --provider openai --episodes 3
+```
+
+Gemini-compatible mode (OpenAI-compatible endpoint):
+
+```powershell
+python execucode/agent_loop.py --provider gemini --episodes 3
+```
+
+Useful flags:
+- `--task-id 2` to pin a single task
+- `--max-attempts 8` to change per-episode budget
+- `--trajectory-out execucode/trajectories/run1.jsonl` to customize output
+
+Required environment variables:
+- OpenAI: `OPENAI_API_KEY` (optional: `OPENAI_MODEL`, `OPENAI_BASE_URL`)
+- Gemini: `GEMINI_API_KEY` or `GOOGLE_API_KEY` (optional: `GEMINI_MODEL`, `GEMINI_BASE_URL`)
+
+## Trajectory Logger (Optional Bonus)
+
+Summarize and chart a saved trajectory:
+
+```powershell
+python execucode/trajectory_logger.py --input execucode/trajectories/latest_run.jsonl
+```
 
 ## Local Development & Docker
 

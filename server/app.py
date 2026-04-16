@@ -435,6 +435,119 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
     .hist-row .task-tag { color: var(--accent2); }
     .hist-row .score-tag { margin-left: auto; font-weight: 600; }
 
+    /* Agent Replay */
+    .replay-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .replay-head {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(135deg, #eef2ff, #ecfeff);
+      display: grid;
+      gap: 10px;
+    }
+    .replay-head h3 {
+      font-size: 0.98rem;
+      font-weight: 800;
+      letter-spacing: 0.2px;
+      color: #0f172a;
+    }
+    .replay-controls {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      align-items: center;
+      gap: 12px;
+    }
+    #replaySlider {
+      width: 100%;
+      accent-color: #0ea5e9;
+      cursor: pointer;
+    }
+    .replay-count {
+      font-size: 0.78rem;
+      color: #334155;
+      font-family: 'JetBrains Mono', monospace;
+      white-space: nowrap;
+    }
+    .replay-reward {
+      font-size: 0.84rem;
+      font-weight: 700;
+      color: #064e3b;
+      background: #d1fae5;
+      border: 1px solid #a7f3d0;
+      border-radius: 999px;
+      padding: 6px 11px;
+      font-family: 'JetBrains Mono', monospace;
+      white-space: nowrap;
+    }
+    .replay-grid {
+      padding: 14px 16px 16px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    .replay-pane {
+      display: grid;
+      gap: 8px;
+      align-content: start;
+    }
+    .replay-label {
+      font-size: 0.8rem;
+      color: #475569;
+      font-weight: 700;
+      letter-spacing: 0.15px;
+    }
+    #replayCode {
+      min-height: 250px;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 14px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12.8px;
+      line-height: 1.55;
+      resize: vertical;
+      tab-size: 4;
+    }
+    .replay-feedback {
+      min-height: 250px;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      background: #111827;
+      color: #cbd5e1;
+      padding: 14px;
+      overflow: auto;
+      font-size: 0.82rem;
+      line-height: 1.6;
+    }
+    .replay-feedback h1,
+    .replay-feedback h2,
+    .replay-feedback h3,
+    .replay-feedback h4 {
+      color: #22c55e;
+      margin: 0 0 6px;
+      font-size: 0.9rem;
+    }
+    .replay-feedback strong { color: #f8fafc; }
+    .replay-feedback p,
+    .replay-feedback li,
+    .replay-feedback code { color: #cbd5e1; }
+    .replay-feedback code {
+      background: rgba(148, 163, 184, 0.2);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    @media (max-width: 860px) {
+      .replay-controls { grid-template-columns: 1fr; }
+      .replay-grid { grid-template-columns: 1fr; }
+    }
+
     footer {
       text-align: center;
       font-size: 0.72rem;
@@ -502,6 +615,27 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
     <div class="history-list" id="historyList"></div>
   </div>
 
+  <div class="replay-wrap" id="replayWrap">
+    <div class="replay-head">
+      <h3>⏳ Agent Time-Travel Replay</h3>
+      <div class="replay-controls">
+        <input id="replaySlider" type="range" min="1" max="1" value="1" />
+        <span id="replayAttemptLabel" class="replay-count">Viewing Attempt 1 / 1</span>
+        <span id="replayReward" class="replay-reward">🏆 Reward: 0.000</span>
+      </div>
+    </div>
+    <div class="replay-grid">
+      <div class="replay-pane">
+        <label for="replayCode" class="replay-label">💻 Agent Generated Code:</label>
+        <textarea id="replayCode" readonly></textarea>
+      </div>
+      <div class="replay-pane">
+        <div class="replay-label">📊 Grader Feedback:</div>
+        <div id="replayFeedback" class="replay-feedback"></div>
+      </div>
+    </div>
+  </div>
+
   <footer>
     ExecuCode &mdash; OpenEnv Hackathon &nbsp;|&nbsp;
     <a href="/baseline" target="_blank">Baseline Scores</a>
@@ -558,6 +692,50 @@ const TASKS = [
 
 let selectedTask = 0;
 const history = [];
+const agentTrajectory = [
+  {
+    attempt: 1,
+    code: `def has_close_elements(numbers, threshold):\n    # Attempt 1: wrong signature behavior and no logic\n    pass`,
+    feedback: `### Evaluation\n**Status:** Failed (Attempt 1/7)\n\n#### Score Breakdown\n- **Correctness:** 0.001\n- **Performance:** 0.520\n- **Quality:** 0.430\n\n#### Notes\nMissing return path and not using pairwise comparison logic.`,
+    reward: 0.05
+  },
+  {
+    attempt: 2,
+    code: `def has_close_elements(numbers, threshold):\n    for i in range(len(numbers)):\n        for j in range(len(numbers)):\n            if i != j and abs(numbers[i] - numbers[j]) < threshold:\n                return True\n    return False`,
+    feedback: `### Evaluation\n**Status:** Failed (Attempt 2/7)\n\n#### Score Breakdown\n- **Correctness:** 0.620\n- **Performance:** 0.220\n- **Quality:** 0.510\n\n#### Notes\nLogic partially works but uses quadratic brute force and misses some edge handling.`,
+    reward: 0.31
+  },
+  {
+    attempt: 3,
+    code: `def has_close_elements(numbers, threshold):\n    nums = sorted(numbers)\n    for i in range(len(nums)):\n        if abs(nums[i] - nums[i + 1]) < threshold:\n            return True\n    return False`,
+    feedback: `### Evaluation\n**Status:** Failed (Attempt 3/7)\n\n#### Score Breakdown\n- **Correctness:** 0.480\n- **Performance:** 0.740\n- **Quality:** 0.590\n\n#### Notes\nImproved strategy, but index overflow bug at the last iteration causes failure.`,
+    reward: 0.42
+  },
+  {
+    attempt: 4,
+    code: `def has_close_elements(numbers, threshold):\n    nums = sorted(numbers)\n    for i in range(len(nums) - 1):\n        if abs(nums[i] - nums[i + 1]) < threshold:\n            return True\n    return False`,
+    feedback: `### Evaluation\n**Status:** Partial Pass (Attempt 4/7)\n\n#### Score Breakdown\n- **Correctness:** 0.840\n- **Performance:** 0.890\n- **Quality:** 0.680\n\n#### Notes\nCore logic works; add documentation and stronger naming for production quality.`,
+    reward: 0.71
+  },
+  {
+    attempt: 5,
+    code: `def has_close_elements(numbers: list[float], threshold: float) -> bool:\n    nums = sorted(numbers)\n    for index in range(len(nums) - 1):\n        if abs(nums[index] - nums[index + 1]) < threshold:\n            return True\n    return False`,
+    feedback: `### Evaluation\n**Status:** Near-Solved (Attempt 5/7)\n\n#### Score Breakdown\n- **Correctness:** 0.940\n- **Performance:** 0.910\n- **Quality:** 0.790\n\n#### Notes\nExcellent progress. A concise docstring and cleaner variable semantics will finalize quality.`,
+    reward: 0.86
+  },
+  {
+    attempt: 6,
+    code: `def has_close_elements(numbers: list[float], threshold: float) -> bool:\n    \"\"\"Return True when any pair differs by less than threshold.\"\"\"\n    sorted_numbers = sorted(numbers)\n    for index in range(len(sorted_numbers) - 1):\n        if abs(sorted_numbers[index] - sorted_numbers[index + 1]) < threshold:\n            return True\n    return False`,
+    feedback: `### Evaluation\n**Status:** Strong (Attempt 6/7)\n\n#### Score Breakdown\n- **Correctness:** 0.990\n- **Performance:** 0.930\n- **Quality:** 0.910\n\n#### Notes\nAll major concerns addressed. Final polish: improve naming consistency and keep comments minimal.`,
+    reward: 0.96
+  },
+  {
+    attempt: 7,
+    code: `def has_close_elements(numbers: list[float], threshold: float) -> bool:\n    \"\"\"Check whether any two values are within threshold distance.\"\"\"\n    if len(numbers) < 2:\n        return False\n\n    sorted_numbers = sorted(numbers)\n    for left, right in zip(sorted_numbers, sorted_numbers[1:]):\n        if abs(left - right) < threshold:\n            return True\n    return False`,
+    feedback: `### Evaluation\n**Status:** Success (Attempt 7/7)\n\n#### Score Breakdown\n- **Correctness:** 0.999\n- **Performance:** 0.950\n- **Quality:** 0.940\n\n#### Notes\nProduction-ready implementation: deterministic, readable, and efficient.`,
+    reward: 0.999
+  }
+];
 
 function buildTaskGrid() {
   const grid = document.getElementById("taskGrid");
@@ -670,8 +848,46 @@ function addHistory(taskId, score) {
     </div>`).join("");
 }
 
+function updateAgentReplay(attemptNumber) {
+  if (!agentTrajectory.length) {
+    return;
+  }
+
+  const totalAttempts = agentTrajectory.length;
+  const normalizedAttempt = Math.min(totalAttempts, Math.max(1, Number(attemptNumber) || 1));
+  const entry = agentTrajectory[normalizedAttempt - 1];
+
+  document.getElementById("replayAttemptLabel").textContent =
+    `Viewing Attempt ${normalizedAttempt} / ${totalAttempts}`;
+  document.getElementById("replayCode").value = entry.code;
+  document.getElementById("replayReward").textContent =
+    `🏆 Reward: ${Number(entry.reward).toFixed(3)}`;
+  document.getElementById("replayFeedback").innerHTML = marked.parse(entry.feedback || "");
+}
+
+function initAgentReplay() {
+  const slider = document.getElementById("replaySlider");
+  if (!slider || !agentTrajectory.length) {
+    return;
+  }
+
+  const totalAttempts = agentTrajectory.length;
+  slider.min = "1";
+  slider.max = String(totalAttempts);
+  slider.step = "1";
+  slider.value = String(totalAttempts);
+
+  slider.addEventListener("input", event => {
+    const target = event.target;
+    updateAgentReplay(Number(target.value));
+  });
+
+  updateAgentReplay(totalAttempts);
+}
+
 buildTaskGrid();
 selectTask(0);
+initAgentReplay();
 </script>
 </body>
 </html>"""
