@@ -7,28 +7,50 @@ sdk: docker
 app_port: 8000
 ---
 
-# ExecuCode: Multi-Objective AST Grader
+# ExecuCode: Multi-Objective Code Grading Environment
 
-ExecuCode introduces a fundamentally new way to evaluate AI-generated code. Instead of relying solely on binary unit testing (pass/fail), ExecuCode operates as a **Multi-Objective AST Grader** that evaluates submissions across three distinct pillars: Correctness, Performance, and Code Quality. It simulates the exact code review process a senior engineer would employ, scrutinizing not just whether the output is correct, but how efficiently and beautifully it was achieved.
+ExecuCode is an OpenEnv-compatible coding environment that grades Python submissions on three axes:
 
-Under the hood, ExecuCode safely executes AI submissions inside an isolated memory-monitored sandbox to deter resource abuse and test state leakage. However, its true power lies in its deep **Abstract Syntax Tree (AST) analysis**. As the code runs, the AST Visitor statically dissects the submission to detect optimal algorithm patterns (like dynamic programming memoization, generator expressions, and hash-based lookups) while violently penalizing nested loops, mutable default arguments, and computational anti-patterns. 
+- Correctness (deterministic test execution)
+- Performance (AST and complexity-oriented signals)
+- Code quality (static readability and style indicators)
 
-This strict, deterministic feedback loop forces AI agents to engage in iterative optimization. When an agent submits a brute-force approach, ExecuCode rejects it with specific execution metrics and AST-targeted guidance (e.g., "Linear membership checks detected. Optimize with a hash map"). The result is an environment perfectly built to push large language models beyond simply "working" code—demanding production-ready, highly optimal, and Pythonic solutions.
+It includes a FastAPI server, interactive dashboard UI, deterministic grader, RL-style wrappers, and Gemini-based autonomous loops.
 
-## Interactive Web UI
+## Current Status
 
-![ExecuCode Web UI](./screenshot.png)
+- Full automated tests are passing.
+- Main API endpoints (`/health`, `/tasks`, `/grader`, `/baseline`) are operational.
+- Dashboard UI at `/` is operational.
+- Single-agent and multi-agent loops are runnable, with optional reference fallback mode.
+
+## Architecture Overview
+
+- `tasks.py`: immutable task catalog, test cases, reference solutions, scoring weights
+- `grader.py`: deterministic grading pipeline and score composition
+- `utils.py`: fenced-code extraction, sandboxed execution helpers, feedback formatting
+- `server/environment.py`: OpenEnv environment implementation
+- `server/app.py`: FastAPI app, dashboard UI, API endpoints
+- `rl_env.py`:
+  - `ExecuCodeEnv`: HumanEval-backed gym-style environment
+  - `ExecuCodeRLEnv`: deterministic task-bank RL wrapper
+- `agent_loop.py`: single-agent autonomous loop (Gemini SDK)
+- `multi_agent_loop.py`: junior/senior chain-of-reflection loop (Gemini SDK)
+- `trajectory_logger.py`: JSONL trajectory summary and ASCII reward chart
+- `openenv.yaml`: OpenEnv metadata and endpoint contract
 
 ## Task Suite
 
-| ID | Task | Difficulty | Focus |
-|---|---|---|---|
-| `0` | Mutable default argument | Easy | Python correctness |
-| `1` | Grid path counting | Medium | Dynamic programming and memoization |
-| `2` | RAG document chunker | Hard | Text processing, edge cases, readability |
-| `3` | Sliding window rate limiter | Extra-Hard | API infra logic, edge cases, code quality |
+| ID | Task | Difficulty |
+|---|---|---|
+| `0` | Python Gotcha: Mutable Default Argument | easy |
+| `1` | Dynamic Programming: Grid Path Counting | medium |
+| `2` | AI Infra: RAG Document Chunker | hard |
+| `3` | API Infrastructure: Sliding Window Rate Limiter | hard |
 
-### Reward weights
+### Score Weights
+
+Each task uses a weighted blend: `(correctness, performance, quality)`.
 
 | Task ID | Correctness | Performance | Quality |
 |---|---:|---:|---:|
@@ -37,91 +59,129 @@ This strict, deterministic feedback loop forces AI agents to engage in iterative
 | `2` | `0.55` | `0.15` | `0.30` |
 | `3` | `0.60` | `0.10` | `0.30` |
 
-## 💡 Judge & Demo Guidelines
+All exposed score fields are clamped to the strict open interval `(0, 1)`.
 
-When demoing the platform or testing custom agent submissions, follow these rules to avoid triggering the strict sandbox defense systems:
+## Quickstart
 
-1. **Do Not Rename the Target Function**: The static AST analyzer specifically targets the function signature. You must keep the names identical (e.g., `def count_paths(grid):` for Task 1) or the execution will immediately abort with a `MissingFunctionError`.
-2. **Return Data, Don't Print**: The deterministic grader captures raw returns to cross-reference with perfect output shapes. Using `print()` is fine for local debugging, but ensuring a final `return` is mandatory for getting Correctness points.
-3. **No Top-Level Tests**: Do not use `if __name__ == '__main__':` or append raw execution loops at the bottom of the snippet. Treat the environment like LeetCode—submit only the requested function and any necessary helpers.
-4. **Iterative Multi-Objective Scoring**:
-   - *Correctness (Unit Tests)* ensures edge-case compliance (empty states, massive inputs).
-   - *Performance (AST Analysis)* strictly penalizes classic `O(n²)` loops in favor of `O(n)` hash-based lookups and memoization caching.
-   - *Quality (Static Analysis)* rewards properly integrated docstrings (`"""..."""`) and strict python Type Hints.
+### 1. Install dependencies
 
-## Project Layout
+From the `execucode` folder:
 
-- `tasks.py`: immutable task definitions, test cases, reference solutions, scoring weights
-- `grader.py`: deterministic grading pipeline, OpenEnv metrics, and AST analysis
-- `utils.py`: code extraction, restricted execution, feedback formatting, AI Mentor integrations
-- `server/environment.py`: `ExecuCodeEnvironment` implementation used by OpenEnv
-- `rl_env.py`: RL-style wrapper exposing `reset()` and `step()` for ML workflows
-- `agent_loop.py`: autonomous script that lets OpenAI/Gemini iterate in the RL loop
-- `trajectory_logger.py`: optional trajectory summary + ASCII reward chart utilities
-- `environment.py`: package-root shim for OpenEnv validator discovery
-- `server/app.py`: FastAPI app, interactive markdown dashboard UI, and task/grader endpoints
-- `pyproject.toml`: Dependency tracking and build definitions
+```powershell
+python -m pip install -e ".[test]"
+```
 
-## RL Wrapper (Required)
+### 2. Run tests
 
-`ExecuCodeRLEnv` converts ExecuCode into a standard RL-style sandbox:
+```powershell
+python -m pytest -q
+```
+
+### 3. Run the API server
+
+```powershell
+python -m execucode.server.app
+```
+
+Or with Uvicorn:
+
+```powershell
+uvicorn execucode.server.app:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Open:
+
+- UI: `http://127.0.0.1:8000/`
+- API docs: `http://127.0.0.1:8000/docs`
+
+## API Endpoints
+
+- `GET /` : interactive dashboard
+- `GET /health` : liveness
+- `GET /tasks` : task metadata for validators/clients
+- `POST /grader` : grade a submission
+- `POST /baseline` : deterministic reference baseline scores
+
+### `/grader` accepted submission keys
+
+Request may provide any one of:
+
+- `answer`
+- `submission`
+- `code`
+- `response`
+- `message`
+
+## RL Environments
+
+### HumanEval-backed environment
+
+```python
+from execucode.rl_env import ExecuCodeEnv
+
+env = ExecuCodeEnv()
+observation, info = env.reset()
+observation, reward, terminated, truncated, info = env.step("def candidate(...): ...")
+```
+
+### Deterministic task-bank wrapper
 
 ```python
 from execucode.rl_env import ExecuCodeRLEnv
 
 env = ExecuCodeRLEnv(max_attempts=10)
-obs, info = env.reset(task_id=1)
-obs, reward, terminated, truncated, info = env.step("""
-def count_paths(grid):
-   # your improved function
-   ...
-""")
+observation, info = env.reset(task_id=1)
+observation, reward, terminated, truncated, info = env.step("def count_paths(grid): ...")
 ```
 
-API shape:
-- `reset(...) -> (observation, info)`
-- `step(action) -> (observation, reward, terminated, truncated, info)`
+## Autonomous Loops
 
-## Autonomous Loop (Recommended)
-
-Run an autonomous agent directly against the RL wrapper:
+### Single-agent loop
 
 ```powershell
-python execucode/agent_loop.py --provider openai --episodes 3
+python agent_loop.py
 ```
 
-Gemini-compatible mode (OpenAI-compatible endpoint):
+### Multi-agent loop
 
 ```powershell
-python execucode/agent_loop.py --provider gemini --episodes 3
+python multi_agent_loop.py
 ```
 
-Useful flags:
-- `--task-id 2` to pin a single task
-- `--max-attempts 8` to change per-episode budget
-- `--trajectory-out execucode/trajectories/run1.jsonl` to customize output
+### Agent environment variables
 
-Required environment variables:
-- OpenAI: `OPENAI_API_KEY` (optional: `OPENAI_MODEL`, `OPENAI_BASE_URL`)
-- Gemini: `GEMINI_API_KEY` or `GOOGLE_API_KEY` (optional: `GEMINI_MODEL`, `GEMINI_BASE_URL`)
+- `GEMINI_API_KEY` : Gemini API key
+- `GEMINI_MODEL` : primary model name (default: `gemini-2.0-flash`)
+- `GEMINI_MODELS` : comma-separated model fallback list
+- `GEMINI_MAX_RETRIES` : retry count per model
+- `GEMINI_RETRY_BACKOFF_SECONDS` : retry backoff base
+- `AGENT_ENABLE_REFERENCE_FALLBACK` : `1/0` fallback toggle
+- `HUMANEVAL_DATASET` : dataset name (default: `openai/openai_humaneval`)
+- `HUMANEVAL_SPLIT` : dataset split (default: `test`)
 
-## Trajectory Logger (Optional Bonus)
+Notes:
 
-Summarize and chart a saved trajectory:
+- If Gemini is unavailable or quota-limited, loops can fall back to reference-solution mode when enabled.
+- `OPENAI_API_KEY` is optional and only used for the mentor hint path in `/grader`.
+
+## Trajectory Utilities
 
 ```powershell
-python execucode/trajectory_logger.py --input execucode/trajectories/latest_run.jsonl
+python trajectory_logger.py --input .\trajectories\latest_run.jsonl
 ```
 
-## Local Development & Docker
+This prints a summary and ASCII reward chart.
 
-Start the local server with hot-reloading:
+## OpenEnv Integration
 
-```powershell
-uv run uvicorn execucode.server.app:app --host 127.0.0.1 --port 8000
-```
+OpenEnv metadata lives in `openenv.yaml` and declares:
 
-To run within a fully contained Docker environment:
+- runtime app: `execucode.server.app:app`
+- environment endpoints (`/reset`, `/step`, `/state`, `/tasks`, `/grader`, `/baseline`, `/health`)
+- reward range `[0.001, 0.999]`
+
+## Docker
+
 ```powershell
 docker build -t execucode .
 docker run --rm -p 8000:8000 execucode
