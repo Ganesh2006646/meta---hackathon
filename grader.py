@@ -1,521 +1,156 @@
-"""Deterministic grading engine for ExecuCode submissions."""
+# Copyright (c) 2026. ExecuCode Environment.
 
-from __future__ import annotations
+"""
+Grading Engine for ExecuCode environment.
+
+Calculates a deterministic reward based on three dimensions:
+1. Correctness (50%): Does the code pass all test cases?
+2. Performance (30%): Does the code use optimal patterns?
+3. Code Quality (20%): Is the code readable and well-structured?
+"""
 
 import ast
 import re
-from copy import deepcopy
-from dataclasses import dataclass
-from typing import Any
+from typing import Any, Dict, List, Tuple
 
-try:
-    from .tasks import Task
-    from .utils import safe_exec_sequence
-except ImportError:
-    from tasks import Task
-    from utils import safe_exec_sequence
+from .tasks import Task
+from .utils import safe_exec
 
 
-@dataclass(frozen=True)
-class GradeResult:
-    """Full grading result for a code submission."""
+def grade_submission(code: str, task: Task) -> Dict[str, Any]:
+    """Calculate scores across correctness, performance, and quality.
+    
+    Returns a dictionary with:
+        correctness_score: float (0.0-1.0)
+        performance_score: float (0.0-1.0)
+        quality_score: float (0.0-1.0)
+        total_reward: float (0.0-1.0)
+        test_details: list of dicts with test results
+        performance_notes: list of strings
+        quality_notes: list of strings
+    """
+    # 1. Correctness (50%)
+    test_details = []
+    correct_count = 0
+    
+    for i, test in enumerate(task.test_cases):
+        success, actual, error = safe_exec(code, task.function_name, test.input_args)
+        
+        passed = False
+        if success and actual == test.expected_output:
+            passed = True
+            correct_count += 1
+            
+        test_details.append({
+            "index": i + 1,
+            "input": test.input_args[0] if len(test.input_args) == 1 else test.input_args,
+            "expected": test.expected_output,
+            "actual": actual if success else "Error",
+            "passed": passed,
+            "error": error
+        })
+    
+    correctness_score = correct_count / len(task.test_cases) if task.test_cases else 0.0
 
-    correctness: float
-    performance: float
-    quality: float
-    reward: float
-    test_details: list[dict[str, Any]]
-    performance_notes: list[str]
-    quality_notes: list[str]
+    # 2. Performance (30%)
+    performance_score = 0.5  # Base score for correctness
+    performance_notes = []
+    
+    # Check for optimal patterns
+    optimal_matches = 0
+    for pattern in task.optimal_patterns:
+        if re.search(pattern, code):
+            optimal_matches += 1
+            performance_notes.append(f"Optimal pattern detected: {pattern}")
+            
+    if task.optimal_patterns:
+        performance_score += (optimal_matches / len(task.optimal_patterns)) * 0.5
+    else:
+        performance_score = 1.0 # No optimization required
+        
+    # Check for anti-patterns (penalities)
+    for pattern in task.anti_patterns:
+        if re.search(pattern, code):
+            performance_score -= 0.2
+            performance_notes.append(f"Inefficient pattern detected: {pattern}")
+            
+    performance_score = max(0.0, min(1.0, performance_score))
+    
+    if correctness_score < 0.5:
+        performance_score *= correctness_score # Scalar performance by correctness if significantly broken
+        performance_notes.append("Performance score reduced due to low correctness.")
 
-
-@dataclass(frozen=True)
-class _PerformanceSignals:
-    loop_count: int
-    max_loop_depth: int
-    comprehension_count: int
-    sort_calls: int
-    sort_inside_loop: int
-    linear_membership_checks: int
-    hash_lookup_usage: int
-    nested_structure: bool
-
-
-def _clamp(value: float) -> float:
-    return max(0.001, min(0.999, value))
-
-
-def _find_target_function(tree: ast.AST, function_name: str) -> ast.FunctionDef | None:
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == function_name:
-            return node
-    return None
-
-
-class _PerformanceVisitor(ast.NodeVisitor):
-    """Collect complexity-related AST signals from a function body."""
-
-    def __init__(self) -> None:
-        self.loop_count = 0   
-        self.current_loop_depth = 0
-        self.max_loop_depth = 0
-        self.comprehension_count = 0
-        self.sort_calls = 0
-        self.sort_inside_loop = 0
-        self.linear_membership_checks = 0
-        self.hash_lookup_usage = 0
-        self.nested_structure = False
-        self._list_like_names: set[str] = set()
-        self._hash_like_names: set[str] = set()
-
-    def visit_For(self, node: ast.For) -> None:  # noqa: N802
-        self.loop_count += 1
-        self.current_loop_depth += 1
-        self.max_loop_depth = max(self.max_loop_depth, self.current_loop_depth)
-        if self.current_loop_depth >= 2:
-            self.nested_structure = True
-        self.generic_visit(node)
-        self.current_loop_depth -= 1
-
-    def visit_While(self, node: ast.While) -> None:  # noqa: N802
-        self.loop_count += 1
-        self.current_loop_depth += 1
-        self.max_loop_depth = max(self.max_loop_depth, self.current_loop_depth)
-        if self.current_loop_depth >= 2:
-            self.nested_structure = True
-        self.generic_visit(node)
-        self.current_loop_depth -= 1
-
-    def visit_ListComp(self, node: ast.ListComp) -> None:  # noqa: N802
-        self._visit_comprehension(node)
-
-    def visit_SetComp(self, node: ast.SetComp) -> None:  # noqa: N802
-        self._visit_comprehension(node)
-
-    def visit_DictComp(self, node: ast.DictComp) -> None:  # noqa: N802
-        self._visit_comprehension(node)
-
-    def visit_GeneratorExp(self, node: ast.GeneratorExp) -> None:  # noqa: N802
-        self._visit_comprehension(node)
-
-    def _visit_comprehension(self, node: ast.AST) -> None:
-        generators = getattr(node, "generators", [])
-        self.comprehension_count += 1
-        self.loop_count += len(generators)
-        if len(generators) >= 2:
-            self.nested_structure = True
-            self.max_loop_depth = max(self.max_loop_depth, len(generators))
-        self.generic_visit(node)
-
-    def visit_Assign(self, node: ast.Assign) -> None:  # noqa: N802
-        for target in node.targets:
-            if isinstance(target, ast.Name):
-                self._register_container_name(target.id, node.value)
-        self.generic_visit(node)
-
-    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:  # noqa: N802
-        if isinstance(node.target, ast.Name) and node.value is not None:
-            self._register_container_name(node.target.id, node.value)
-        self.generic_visit(node)
-
-    def _register_container_name(self, name: str, value: ast.AST) -> None:
-        if isinstance(value, (ast.List, ast.Tuple)):
-            self._list_like_names.add(name)
-            return
-        if isinstance(value, (ast.Set, ast.Dict)):
-            self._hash_like_names.add(name)
-            return
-        if isinstance(value, ast.Call):
-            if isinstance(value.func, ast.Name):
-                if value.func.id in {"list", "tuple"}:
-                    self._list_like_names.add(name)
-                elif value.func.id in {"set", "dict", "Counter", "defaultdict"}:
-                    self._hash_like_names.add(name)
-
-    def visit_Compare(self, node: ast.Compare) -> None:  # noqa: N802
-        for op, right in zip(node.ops, node.comparators):
-            if not isinstance(op, (ast.In, ast.NotIn)):
-                continue
-            if isinstance(right, (ast.List, ast.Tuple)):
-                self.linear_membership_checks += 1
-            elif isinstance(right, (ast.Set, ast.Dict)):
-                self.hash_lookup_usage += 1
-            elif isinstance(right, ast.Name):
-                if right.id in self._list_like_names:
-                    self.linear_membership_checks += 1
-                elif right.id in self._hash_like_names:
-                    self.hash_lookup_usage += 1
-        self.generic_visit(node)
-
-    def visit_Subscript(self, node: ast.Subscript) -> None:  # noqa: N802
-        """Detect dictionary subscript lookups like memo[(m, n)] for DP caching."""
-        if isinstance(node.value, ast.Name):
-            if node.value.id in self._hash_like_names or node.value.id in {"memo", "cache", "dp"}:
-                self.hash_lookup_usage += 1
-        self.generic_visit(node)
-
-    def visit_Call(self, node: ast.Call) -> None:  # noqa: N802
-        function = node.func
-
-        if isinstance(function, ast.Name):
-            if function.id == "sorted":
-                self.sort_calls += 1
-                if self.current_loop_depth > 0:
-                    self.sort_inside_loop += 1
-            elif function.id in {"set", "dict", "Counter", "defaultdict"}:
-                self.hash_lookup_usage += 1
-        elif isinstance(function, ast.Attribute):
-            if function.attr == "sort":
-                self.sort_calls += 1
-                if self.current_loop_depth > 0:
-                    self.sort_inside_loop += 1
-            elif function.attr in {"add", "get", "items", "keys", "values"}:
-                self.hash_lookup_usage += 1
-
-        self.generic_visit(node)
-
-    def to_signals(self) -> _PerformanceSignals:
-        return _PerformanceSignals(
-            loop_count=self.loop_count,
-            max_loop_depth=max(1, self.max_loop_depth) if self.loop_count else 0,
-            comprehension_count=self.comprehension_count,
-            sort_calls=self.sort_calls,
-            sort_inside_loop=self.sort_inside_loop,
-            linear_membership_checks=self.linear_membership_checks,
-            hash_lookup_usage=self.hash_lookup_usage,
-            nested_structure=self.nested_structure,
-        )
-
-
-def _extract_performance_signals(target: ast.FunctionDef) -> _PerformanceSignals:
-    visitor = _PerformanceVisitor()
-    visitor.visit(target)
-    return visitor.to_signals()
-
-
-def _snapshot(value: Any) -> Any:
-    try:
-        return deepcopy(value)
-    except Exception:  # noqa: BLE001 - fallback for non-copyable values
-        return value
-
-
-def _normalize_error(error: Any) -> dict[str, Any] | None:
-    if error is None:
-        return None
-    if isinstance(error, dict):
-        return {
-            "status": str(error.get("status", "runtime_error")),
-            "error_type": str(error.get("error_type", "Error")),
-            "message": str(error.get("message", "")),
-            "line": error.get("line"),
-        }
+    # 3. Code Quality (20%)
+    quality_score, quality_notes = _check_code_quality(code)
+    
+    # Final Weighted Reward
+    total_reward = (
+        correctness_score * 0.5 +
+        performance_score * 0.3 +
+        quality_score * 0.2
+    )
+    
+    # Stabilize reward
+    total_reward = round(total_reward, 3)
+    
     return {
-        "status": "runtime_error",
-        "error_type": "Error",
-        "message": str(error),
-        "line": None,
+        "correctness_score": correctness_score,
+        "performance_score": performance_score,
+        "quality_score": quality_score,
+        "total_reward": total_reward,
+        "test_details": test_details,
+        "performance_notes": performance_notes,
+        "quality_notes": quality_notes
     }
 
 
-def _score_correctness(code: str, task: Task) -> tuple[float, list[dict[str, Any]]]:
-    details: list[dict[str, Any]] = []
-    correct = 0
-    input_args_list = [test_case.input_args for test_case in task.test_cases]
-
-    ran, run_results, run_error = safe_exec_sequence(
-        code=code,
-        function_name=task.function_name,
-        input_args_list=input_args_list,
-        timeout=3.0,
-    )
-
-    if not ran:
-        normalized_error = _normalize_error(run_error)
-        for index, test_case in enumerate(task.test_cases, start=1):
-            details.append(
-                {
-                    "index": index,
-                    "input": _snapshot(test_case.input_args),
-                    "expected": _snapshot(test_case.expected_output),
-                    "actual": None,
-                    "error": normalized_error,
-                    "passed": False,
-                    "elapsed_ms": None,
-                    "memory_kb": None,
-                }
-            )
-        return 0.0, details
-
-    for index, (test_case, result) in enumerate(
-        zip(task.test_cases, run_results),
-        start=1,
-    ):
-        ok = bool(result.get("ok"))
-        actual = result.get("output")
-        error = _normalize_error(result.get("error"))
-        elapsed_ms = result.get("elapsed_ms")
-        memory_kb = result.get("memory_kb")
-        passed = ok and actual == test_case.expected_output
-        if passed:
-            correct += 1
-        details.append(
-            {
-                "index": index,
-                "input": _snapshot(test_case.input_args),
-                "expected": _snapshot(test_case.expected_output),
-                "actual": _snapshot(actual),
-                "error": error,
-                "passed": passed,
-                "elapsed_ms": elapsed_ms,
-                "memory_kb": memory_kb,
-            }
-        )
-
-    return correct / len(task.test_cases), details
-
-
-def _score_performance(code: str, task: Task) -> tuple[float, list[str]]:
-    notes: list[str] = []
-    if task.scoring_weights[1] == 0:
-        return 1.0, ["Performance is not weighted for this task."]
-
-    try:
-        tree = ast.parse(code)
-    except SyntaxError as exc:
-        return 0.0, [f"Could not parse code for performance analysis: {exc.msg}."]
-
-    target = _find_target_function(tree, task.function_name)
-    if target is None:
-        return 0.0, [f"Function `{task.function_name}` was not found."]
-
-    signals = _extract_performance_signals(target)
-    score = 0.5
-
-    notes.append(
-        "Complexity signals: "
-        f"loops={signals.loop_count}, "
-        f"max_depth={signals.max_loop_depth}, "
-        f"linear_membership={signals.linear_membership_checks}, "
-        f"hash_usage={signals.hash_lookup_usage}, "
-        f"sort_calls={signals.sort_calls}."
-    )
-
-    if not signals.nested_structure:
-        score += 0.2
-        notes.append("No nested loop/comprehension structure detected.")
-    else:
-        score -= 0.25
-        notes.append("Nested loop/comprehension structure detected; quadratic risk is high.")
-
-    if signals.hash_lookup_usage > 0:
-        score += 0.2
-        notes.append("Uses hash-based lookup patterns (set/dict style).")
-    else:
-        notes.append("No strong hash-based lookup signal detected.")
-
-    if signals.linear_membership_checks > 0:
-        penalty = min(0.2, 0.07 * signals.linear_membership_checks)
-        score -= penalty
-        notes.append("Linear membership checks (`in list/tuple`) may hurt scalability.")
-
-    if signals.sort_calls > 0 and signals.sort_inside_loop == 0:
-        score += 0.08
-        notes.append("Sort usage is outside loops.")
-    if signals.sort_inside_loop > 0:
-        penalty = min(0.2, 0.1 * signals.sort_inside_loop)
-        score -= penalty
-        notes.append("Sorting inside loops detected, which can amplify runtime.")
-
-    if signals.comprehension_count > 0 and not signals.nested_structure:
-        score += 0.05
-        notes.append("Comprehension usage is concise and likely efficient.")
-
-    optimal_matches = [
-        pattern for pattern in task.optimal_patterns if re.search(pattern, code, re.DOTALL)
-    ]
-    anti_matches = [
-        pattern for pattern in task.anti_patterns if re.search(pattern, code, re.DOTALL)
-    ]
-
-    if optimal_matches:
-        bonus = min(0.50, 0.20 * len(optimal_matches))
-        score += bonus
-        notes.append(f"Matched {len(optimal_matches)} task-specific optimal pattern(s) for a huge bonus!")
-        
-    if anti_matches:
-        penalty = min(0.40, 0.20 * len(anti_matches))
-        score -= penalty
-        notes.append(f"Matched {len(anti_matches)} task-specific anti-pattern(s).")
-
-    return _clamp(score), notes
-
-
-def _score_quality(code: str, task: Task) -> tuple[float, list[str]]:
-    notes: list[str] = []
-    if task.scoring_weights[2] == 0:
-        return 1.0, ["Code quality is not weighted for this task."]
-
-    try:
-        tree = ast.parse(code)
-    except SyntaxError as exc:
-        return 0.0, [f"Could not parse code for quality analysis: {exc.msg}."]
-
-    target = _find_target_function(tree, task.function_name)
-    if target is None:
-        return 0.0, [f"Function `{task.function_name}` was not found."]
-
+def _check_code_quality(code: str) -> Tuple[float, List[str]]:
+    """Perform static analysis for code quality."""
     score = 1.0
+    notes = []
+    
+    try:
+        tree = ast.parse(code)
+    except Exception:
+        return 0.0, ["Syntax error prevents quality analysis."]
 
-    has_docstring = ast.get_docstring(target) is not None
-    if has_docstring:
-        notes.append("Function includes a docstring.")
+    # 1. Check for Docstring
+    has_docstring = False
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.Module)):
+            if ast.get_docstring(node):
+                has_docstring = True
+                break
+    
+    if not has_docstring:
+        score -= 0.2
+        notes.append("Missing docstring.")
     else:
-        score -= 0.15
-        notes.append("Function is missing a docstring.")
+        notes.append("Docstring present.")
 
-    body_line_count = max(
-        1,
-        getattr(target, "end_lineno", target.lineno) - target.lineno + 1,
-    )
-    if body_line_count > 70:
-        score -= 0.25
-        notes.append("Function body is very long; consider smaller logical blocks.")
-    elif body_line_count > 45:
-        score -= 0.15
-        notes.append("Function body is longer than expected for this task.")
-    else:
-        notes.append("Function length is concise.")
-
-    branch_nodes = sum(
-        1
-        for node in ast.walk(target)
-        if isinstance(
-            node,
-            (ast.If, ast.For, ast.While, ast.Try, ast.With, ast.Match, ast.IfExp),
-        )
-    )
-    if branch_nodes > 20:
-        score -= 0.25
-        notes.append("Control flow is highly complex.")
-    elif branch_nodes > 12:
-        score -= 0.15
-        notes.append("Control flow is moderately complex.")
-    else:
-        notes.append("Control flow complexity is manageable.")
-
-    variable_names: set[str] = set()
-    variable_names.update(arg.arg for arg in target.args.args)
-    for node in ast.walk(target):
+    # 2. Variable Naming (Simple check for single-character names)
+    single_char_vars = []
+    for node in ast.walk(tree):
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-            variable_names.add(node.id)
-
-    terse_names = sorted(
-        name
-        for name in variable_names
-        if len(name) == 1 and name not in {"i", "j", "k"}
-    )
-    if terse_names:
-        score -= min(0.24, 0.06 * len(terse_names))
-        notes.append(f"Terse variable names detected: {', '.join(terse_names)}.")
+            if len(node.id) == 1 and node.id not in ('i', 'j', 'k', 'x', 'y', 'z', '_'):
+                single_char_vars.append(node.id)
+                
+    if single_char_vars:
+        score -= 0.1 * min(len(set(single_char_vars)), 3)
+        notes.append(f"Generic variable names found: {', '.join(set(single_char_vars))}")
     else:
-        notes.append("Variable names are descriptive.")
+        notes.append("Good variable naming conventions.")
 
-    non_snake_names = sorted(
-        name
-        for name in variable_names
-        if not re.match(r"^[a-z_][a-z0-9_]*$", name)
-    )
-    if non_snake_names:
-        score -= min(0.12, 0.03 * len(non_snake_names))
-        notes.append("Some variable names do not follow snake_case style.")
-
-    statement_signatures: dict[str, int] = {}
-    for stmt in target.body:
-        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant):
-            if isinstance(stmt.value.value, str):
-                continue
-        signature = ast.dump(stmt, include_attributes=False)
-        statement_signatures[signature] = statement_signatures.get(signature, 0) + 1
-
-    duplicate_count = sum(count - 1 for count in statement_signatures.values() if count > 1)
-    if duplicate_count > 0:
-        score -= min(0.12, 0.04 * duplicate_count)
-        notes.append("Repeated statement blocks detected; consider refactoring duplicates.")
-
-    if any(isinstance(node, (ast.Global, ast.Nonlocal)) for node in ast.walk(target)):
+    # 3. Code Length (Complexity proxy)
+    lines = [l for l in code.splitlines() if l.strip() and not l.strip().startswith("#")]
+    if len(lines) > 30:
         score -= 0.1
-        notes.append("Global/nonlocal state usage detected.")
+        notes.append(f"Function is relatively long ({len(lines)} lines).")
+    elif len(lines) < 5:
+        notes.append("Code is concise.")
 
-    if any(
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "print"
-        for node in ast.walk(target)
-    ):
-        score -= 0.05
-        notes.append("Debug `print` calls detected in final solution.")
+    # 4. Built-in usage (Encouraging efficient Pythonic code)
+    if "for" in code and "range" in code and ("enumerate" in code or "zip" in code):
+        notes.append("Good use of Pythonic iteration (enumerate/zip).")
 
-    has_type_hints = (
-        all(arg.annotation is not None for arg in target.args.args)
-        and target.returns is not None
-    )
-    if has_type_hints:
-        score += 0.03
-        notes.append("Type hints are present for arguments and return value.")
-
-    return _clamp(score), notes
-
-
-def _runtime_summary_from_details(test_details: list[dict[str, Any]]) -> str | None:
-    elapsed_values = [
-        float(detail["elapsed_ms"])
-        for detail in test_details
-        if isinstance(detail.get("elapsed_ms"), (int, float))
-    ]
-    memory_values = [
-        int(detail["memory_kb"])
-        for detail in test_details
-        if isinstance(detail.get("memory_kb"), (int, float))
-    ]
-
-    if not elapsed_values and not memory_values:
-        return None
-
-    parts: list[str] = []
-    if elapsed_values:
-        avg_elapsed = sum(elapsed_values) / len(elapsed_values)
-        max_elapsed = max(elapsed_values)
-        parts.append(f"runtime(avg={avg_elapsed:.2f}ms, max={max_elapsed:.2f}ms)")
-    if memory_values:
-        max_memory = max(memory_values)
-        parts.append(f"python_peak_memory(max={max_memory}KB)")
-    return "Execution metrics: " + ", ".join(parts) + "."
-
-
-def grade_submission(code: str, task: Task) -> GradeResult:
-    """Grade a submission against a task and return all scoring dimensions."""
-
-    correctness_raw, test_details = _score_correctness(code, task)
-    correctness = _clamp(correctness_raw)
-    
-    performance, performance_notes = _score_performance(code, task)
-    runtime_summary = _runtime_summary_from_details(test_details)
-    if runtime_summary is not None:
-        performance_notes = [runtime_summary, *performance_notes]
-    quality, quality_notes = _score_quality(code, task)
-    
-    c_weight, p_weight, q_weight = task.scoring_weights
-    reward = _clamp(
-        correctness_raw * c_weight + performance * p_weight + quality * q_weight
-    )
-
-    return GradeResult(
-        correctness=correctness,
-        performance=performance,
-        quality=quality,
-        reward=reward,
-        test_details=test_details,
-        performance_notes=performance_notes,
-        quality_notes=quality_notes,
-    )
+    return max(0.0, min(1.0, score)), notes
